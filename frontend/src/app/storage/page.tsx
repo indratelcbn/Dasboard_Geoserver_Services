@@ -147,10 +147,10 @@ export default function StoragePage() {
                       <TableHead className="w-12">#</TableHead>
                       <TableHead>
                         <span className="inline-flex items-center gap-2">
-                          <FileText className="h-4 w-4" /> Layer
+                          <FileText className="h-4 w-4" /> Shapefile
                         </span>
                       </TableHead>
-                      <TableHead>File</TableHead>
+                      <TableHead>Layer</TableHead>
                       <TableHead className="text-right">Size</TableHead>
                       <TableHead>Modified</TableHead>
                       <TableHead>Status</TableHead>
@@ -158,22 +158,22 @@ export default function StoragePage() {
                   </TableHeader>
                   <TableBody>
                     {contents.files.map((f, i) => (
-                      <TableRow key={f.layer}>
+                      <TableRow key={f.name}>
                         <TableCell className="text-muted-foreground">{i + 1}</TableCell>
-                        <TableCell className="font-medium">{f.layer}</TableCell>
-                        <TableCell className="text-muted-foreground">{f.file}</TableCell>
+                        <TableCell className="font-medium">{f.file}</TableCell>
+                        <TableCell className="text-muted-foreground">{f.layer ?? '—'}</TableCell>
                         <TableCell className="text-right">{f.size}</TableCell>
                         <TableCell className="text-muted-foreground">
                           {f.modified ? new Date(f.modified).toLocaleString() : '—'}
                         </TableCell>
                         <TableCell>
-                          {f.exists ? (
+                          {f.published ? (
                             <Badge variant="success" className="gap-1">
-                              <CheckCircle2 className="h-3 w-3" /> Ada
+                              <CheckCircle2 className="h-3 w-3" /> Published
                             </Badge>
                           ) : (
                             <Badge variant="secondary" className="gap-1">
-                              <AlertTriangle className="h-3 w-3" /> Hilang
+                              <AlertTriangle className="h-3 w-3" /> Unpublished
                             </Badge>
                           )}
                         </TableCell>

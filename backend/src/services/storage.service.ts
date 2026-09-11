@@ -13,13 +13,13 @@ export interface FileStore {
 }
 
 export interface StoreFile {
-  layer: string;
-  nativeName: string;
+  name: string;
   file: string;
   bytes: number;
   size: string;
   modified: string | null;
-  exists: boolean;
+  published: boolean;
+  layer: string | null;
 }
 
 export interface StoreContents {
@@ -120,7 +120,7 @@ class StorageService {
     return stores;
   }
 
-  /** Shapefile terpublikasi pada satu datastore, lengkap dengan ukuran on-disk. */
+  /** Shapefile pada satu datastore (pindai direktori), lengkap dengan ukuran on-disk. */
   async storeContents(workspace: string, storeName: string): Promise<StoreContents> {
     const detail = await geoserverService.dataStore(workspace, storeName);
     const store = detail?.dataStore;
@@ -128,11 +128,34 @@ class StorageService {
     const url = connectionParam(store, 'url');
     const resolved = url ? resolveDiskPath(url) : null;
 
-    let baseDir: string | null = null;
-    if (resolved) baseDir = /\.shp$/i.test(resolved) ? path.dirname(resolved) : resolved;
+    // Store bisa menunjuk satu file .shp atau sebuah direktori berisi banyak .shp.
+    const singleShp = resolved && /\.shp$/i.test(resolved) ? path.basename(resolved, '.shp') : null;
+    const baseDir = resolved ? (singleShp ? path.dirname(resolved) : resolved) : null;
 
-    // Indeks ukuran file di disk per nama-dasar (case-insensitive).
-    const sizeByBase = new Map<string, { bytes: number; modified: number }>();
+    // Peta featuretype terpublikasi: nativeName (lowercase) -> nama layer.
+    const published = new Map<string, string>();
+    try {
+      const ft = await geoserverService.featureTypes(workspace, storeName);
+      const list = toArray<any>(ft?.featureTypes?.featureType);
+      await Promise.all(
+        list.map(async (f) => {
+          let native = f.name as string;
+          try {
+            const d = await geoserverService.featureType(workspace, storeName, f.name);
+            native = d?.featureType?.nativeName ?? f.name;
+          } catch {
+            /* pakai nama publikasi */
+          }
+          published.set(String(native).toLowerCase(), f.name);
+        })
+      );
+    } catch {
+      /* store tanpa featuretype terbaca */
+    }
+
+    // Pindai direktori, kelompokkan berdasarkan nama-dasar shapefile.
+    const grouped = new Map<string, { bytes: number; modified: number }>();
+    const names = new Map<string, string>();
     let accessible = false;
     if (baseDir) {
       try {
@@ -143,13 +166,16 @@ class StorageService {
             if (!e.isFile()) return;
             const ext = path.extname(e.name).slice(1).toLowerCase();
             if (!SHP_EXTS.includes(ext)) return;
-            const base = path.basename(e.name, path.extname(e.name)).toLowerCase();
+            const base = path.basename(e.name, path.extname(e.name));
+            const key = base.toLowerCase();
+            if (singleShp && singleShp.toLowerCase() !== key) return;
             try {
               const st = await fs.stat(path.join(baseDir!, e.name));
-              const cur = sizeByBase.get(base) ?? { bytes: 0, modified: 0 };
+              const cur = grouped.get(key) ?? { bytes: 0, modified: 0 };
               cur.bytes += st.size;
               cur.modified = Math.max(cur.modified, st.mtimeMs);
-              sizeByBase.set(base, cur);
+              grouped.set(key, cur);
+              if (!names.has(key)) names.set(key, base);
             } catch {
               /* file tak terbaca, lewati */
             }
@@ -160,38 +186,33 @@ class StorageService {
       }
     }
 
-    const ftList = await (async () => {
-      try {
-        const ft = await geoserverService.featureTypes(workspace, storeName);
-        return toArray<any>(ft?.featureTypes?.featureType);
-      } catch {
-        return [];
-      }
-    })();
+    let files: StoreFile[] = [...grouped.entries()].map(([key, info]) => {
+      const name = names.get(key) ?? key;
+      return {
+        name,
+        file: `${name}.shp`,
+        bytes: info.bytes,
+        size: prettyBytes(info.bytes),
+        modified: new Date(info.modified).toISOString(),
+        published: published.has(key),
+        layer: published.get(key) ?? null,
+      };
+    });
 
-    const files: StoreFile[] = await Promise.all(
-      ftList.map(async (ft) => {
-        let nativeName = ft.name as string;
-        try {
-          const d = await geoserverService.featureType(workspace, storeName, ft.name);
-          nativeName = d?.featureType?.nativeName ?? ft.name;
-        } catch {
-          /* pakai nama publikasi */
-        }
-        const info = sizeByBase.get(nativeName.toLowerCase());
-        return {
-          layer: ft.name,
-          nativeName,
-          file: `${nativeName}.shp`,
-          bytes: info?.bytes ?? 0,
-          size: prettyBytes(info?.bytes ?? 0),
-          modified: info ? new Date(info.modified).toISOString() : null,
-          exists: !!info,
-        };
-      })
-    );
+    // Fallback: NAS tak terbaca — tetap tampilkan layer terpublikasi (ukuran 0).
+    if (files.length === 0 && published.size > 0) {
+      files = [...published.entries()].map(([key, layer]) => ({
+        name: key,
+        file: `${key}.shp`,
+        bytes: 0,
+        size: prettyBytes(0),
+        modified: null,
+        published: true,
+        layer,
+      }));
+    }
 
-    files.sort((a, b) => b.bytes - a.bytes);
+    files.sort((a, b) => b.bytes - a.bytes || a.name.localeCompare(b.name));
     const totalBytes = files.reduce((s, f) => s + f.bytes, 0);
 
     return {

@@ -84,13 +84,13 @@ export interface FileStore {
 }
 
 export interface StoreFile {
-  layer: string;
-  nativeName: string;
+  name: string;
   file: string;
   bytes: number;
   size: string;
   modified: string | null;
-  exists: boolean;
+  published: boolean;
+  layer: string | null;
 }
 
 export interface StoreContents {
