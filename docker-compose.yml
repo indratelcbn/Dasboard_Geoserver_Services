@@ -120,6 +120,10 @@ services:
       PGPASSWORD: postgres123
       PGDATABASE: geodb
       DATABASE_URL: postgresql://appuser:app123@appdb:5432/appdb
+      NAS_SOURCE_PREFIX: /data/nasdata3
+      NAS_MOUNT_PATH: /data/nasdata3
+    volumes:
+      - /mnt/nasdata3:/data/nasdata3:ro
     ports:
       - "4000:4000"
     networks:

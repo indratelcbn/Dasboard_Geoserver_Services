@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { geoserverRouter } from './geoserver.routes.js';
 import { gwcRouter } from './gwc.routes.js';
 import { postgresRouter } from './postgres.routes.js';
+import { storageRouter } from './storage.routes.js';
 import { geoserverService } from '../services/geoserver.service.js';
 import { gwcService } from '../services/geowebcache.service.js';
 import { postgresService } from '../services/postgres.service.js';
@@ -30,3 +31,4 @@ apiRouter.get(
 apiRouter.use('/geoserver', geoserverRouter);
 apiRouter.use('/gwc', gwcRouter);
 apiRouter.use('/postgres', postgresRouter);
+apiRouter.use('/storage', storageRouter);

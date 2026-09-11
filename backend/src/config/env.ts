@@ -27,6 +27,11 @@ export const config = {
     password: process.env.PGPASSWORD ?? 'postgres123',
     database: process.env.PGDATABASE ?? 'geodb',
   },
+  storage: {
+    // GeoServer melihat file di sourcePrefix; backend mengaksesnya via mountPath.
+    sourcePrefix: (process.env.NAS_SOURCE_PREFIX ?? '/data/nasdata3').replace(/\/$/, ''),
+    mountPath: (process.env.NAS_MOUNT_PATH ?? '/data/nasdata3').replace(/\/$/, ''),
+  },
 };
 
 export type AppConfig = typeof config;

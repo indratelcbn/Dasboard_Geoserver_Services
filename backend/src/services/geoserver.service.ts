@@ -47,6 +47,24 @@ class GeoServerService {
     return this.get(`/workspaces/${encodeURIComponent(workspace)}/datastores.json`);
   }
 
+  async dataStore(workspace: string, name: string): Promise<any> {
+    return this.get(
+      `/workspaces/${encodeURIComponent(workspace)}/datastores/${encodeURIComponent(name)}.json`
+    );
+  }
+
+  async featureTypes(workspace: string, datastore: string): Promise<any> {
+    return this.get(
+      `/workspaces/${encodeURIComponent(workspace)}/datastores/${encodeURIComponent(datastore)}/featuretypes.json`
+    );
+  }
+
+  async featureType(workspace: string, datastore: string, name: string): Promise<any> {
+    return this.get(
+      `/workspaces/${encodeURIComponent(workspace)}/datastores/${encodeURIComponent(datastore)}/featuretypes/${encodeURIComponent(name)}.json`
+    );
+  }
+
   async coverageStores(workspace: string): Promise<any> {
     return this.get(`/workspaces/${encodeURIComponent(workspace)}/coveragestores.json`);
   }

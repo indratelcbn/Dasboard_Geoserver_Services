@@ -73,3 +73,34 @@ export interface PgTable {
   hasGeometry: boolean;
   size: string;
 }
+
+export interface FileStore {
+  workspace: string;
+  name: string;
+  type: string | null;
+  path: string | null;
+  enabled: boolean;
+  featureTypes: number;
+}
+
+export interface StoreFile {
+  layer: string;
+  nativeName: string;
+  file: string;
+  bytes: number;
+  size: string;
+  modified: string | null;
+  exists: boolean;
+}
+
+export interface StoreContents {
+  workspace: string;
+  store: string;
+  type: string | null;
+  path: string | null;
+  accessible: boolean;
+  totalBytes: number;
+  totalSize: string;
+  fileCount: number;
+  files: StoreFile[];
+}

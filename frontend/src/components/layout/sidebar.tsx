@@ -21,6 +21,7 @@ const nav = [
   { href: '/styles', label: 'Styles', icon: Palette },
   { href: '/cache', label: 'Tile Cache (GWC)', icon: HardDrive },
   { href: '/database', label: 'PostGIS Database', icon: Database },
+  { href: '/storage', label: 'NAS Storage', icon: Server },
   { href: '/map', label: 'Map Preview', icon: Map },
 ];
 
