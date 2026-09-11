@@ -67,6 +67,26 @@ function isFileBased(type: string | null, url: string | null): boolean {
 }
 
 class StorageService {
+  /** Ringkasan untuk header dashboard: ketersediaan mount NAS + jumlah file store. */
+  async summary(): Promise<{ online: boolean; mountPath: string; stores: number }> {
+    let online = false;
+    try {
+      await fs.access(config.storage.mountPath);
+      online = true;
+    } catch {
+      online = false;
+    }
+
+    let stores = 0;
+    try {
+      stores = (await this.fileStores()).length;
+    } catch {
+      stores = 0;
+    }
+
+    return { online, mountPath: config.storage.mountPath, stores };
+  }
+
   /** Semua datastore berbasis file/shapefile di seluruh workspace. */
   async fileStores(): Promise<FileStore[]> {
     const wsData = await geoserverService.workspaces();

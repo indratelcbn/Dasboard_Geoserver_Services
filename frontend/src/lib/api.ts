@@ -36,6 +36,7 @@ export interface HealthResponse {
   };
   geowebcache: { cachedLayers: number; gridSets: number; online: boolean };
   postgres: { online: boolean; version: string | null; postgis: string | null };
+  storage: { online: boolean; mountPath: string; stores: number };
 }
 
 export interface Workspace {

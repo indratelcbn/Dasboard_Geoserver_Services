@@ -25,6 +25,7 @@ export default function DashboardPage() {
   const gs = data?.geoserver;
   const gwc = data?.geowebcache;
   const pg = data?.postgres;
+  const nas = data?.storage;
 
   return (
     <div>
@@ -45,7 +46,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Service status */}
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-4">
           <ServiceCard
             icon={Server}
             title="GeoServer"
@@ -73,6 +74,15 @@ export default function DashboardPage() {
             rows={[
               ['Server', pg?.version ? pg.version.split(' ').slice(0, 2).join(' ') : '—'],
               ['PostGIS', pg?.postgis ? pg.postgis.split(' ')[1] ?? 'installed' : '—'],
+            ]}
+          />
+          <ServiceCard
+            icon={Server}
+            title="NAS Storage"
+            online={nas?.online}
+            rows={[
+              ['File Stores', String(nas?.stores ?? '—')],
+              ['Mount', nas?.mountPath ?? '—'],
             ]}
           />
         </div>
