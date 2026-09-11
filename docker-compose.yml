@@ -31,8 +31,8 @@ services:
       POSTGRES_DB: appdb
     volumes:
       - ./postgres/app-data:/var/lib/postgresql/data
-    ports:
-      - "5433:5432"
+    expose:
+      - "5432"          # internal-only; jangan buka ke publik di produksi
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U appuser -d appdb"]
       interval: 10s
@@ -109,7 +109,7 @@ services:
     environment:
       PORT: 4000
       NODE_ENV: production
-      CORS_ORIGIN: http://localhost:3000
+      CORS_ORIGIN: http://10.10.175.112:3000
       GEOSERVER_URL: http://geoserver:8080/geoserver
       GEOSERVER_PUBLIC_URL: http://10.10.175.112/geoserver
       GEOSERVER_USER: admin
@@ -126,13 +126,16 @@ services:
       - gis
 
   dashboard-frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: http://10.10.175.112:4000
     container_name: dashboard-frontend
     restart: unless-stopped
     depends_on:
       - dashboard-backend
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:4000
+      NEXT_PUBLIC_API_URL: http://10.10.175.112:4000
     ports:
       - "3000:3000"
     networks:
