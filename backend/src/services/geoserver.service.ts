@@ -59,6 +59,61 @@ class GeoServerService {
     return this.get(`/layers/${encodeURIComponent(name)}.json`);
   }
 
+  /**
+   * Layers enriched with store name, type and ready-to-use WMS/WFS links.
+   * Performs one detail request per layer (best effort — failures are skipped).
+   */
+  async layersDetailed(): Promise<LayerDetail[]> {
+    const data = await this.layers();
+    const list = toArray<{ name: string; href: string }>(data?.layers?.layer);
+    const base = config.geoserver.publicUrl;
+
+    const enriched = await Promise.all(
+      list.map(async (item): Promise<LayerDetail> => {
+        let detail: any = null;
+        try {
+          detail = await this.layer(item.name);
+        } catch {
+          /* keep basic info if detail lookup fails */
+        }
+
+        const layer = detail?.layer;
+        const resource = layer?.resource ?? {};
+        const href: string = resource?.href ?? '';
+        const workspace = parseFromHref(href, 'workspaces');
+        const store = parseFromHref(href, 'datastores') ?? parseFromHref(href, 'coveragestores');
+
+        // Fully-qualified name required by WMS/WFS (workspace:layer).
+        const qualified: string =
+          typeof resource?.name === 'string' && resource.name.includes(':')
+            ? resource.name
+            : workspace
+              ? `${workspace}:${item.name}`
+              : item.name;
+
+        const type: string | null = layer?.type ?? null;
+        const isVector = (type ?? '').toUpperCase() === 'VECTOR';
+
+        const wms = `${base}/wms/reflect?layers=${encodeURIComponent(qualified)}&format=application/openlayers`;
+        const wfs = isVector
+          ? `${base}/wfs?service=WFS&version=2.0.0&request=GetFeature&typeName=${encodeURIComponent(qualified)}&count=50&outputFormat=application/json`
+          : null;
+
+        return {
+          name: qualified,
+          workspace: workspace ?? (qualified.includes(':') ? qualified.split(':')[0] : null),
+          store: store ?? null,
+          type,
+          wms,
+          wfs,
+          href: item.href,
+        };
+      })
+    );
+
+    return enriched;
+  }
+
   async layerGroups(): Promise<any> {
     return this.get('/layergroups.json');
   }
@@ -149,6 +204,22 @@ class GeoServerService {
 export function toArray<T>(value: T | T[] | undefined | null | ''): T[] {
   if (value === undefined || value === null || value === '') return [];
   return Array.isArray(value) ? value : [value];
+}
+
+/** Extract the path segment following a REST collection name from a resource href. */
+export function parseFromHref(href: string, collection: string): string | null {
+  const match = new RegExp(`/${collection}/([^/]+)`).exec(href ?? '');
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+export interface LayerDetail {
+  name: string;
+  workspace: string | null;
+  store: string | null;
+  type: string | null;
+  wms: string | null;
+  wfs: string | null;
+  href: string;
 }
 
 export const geoserverService = new GeoServerService();

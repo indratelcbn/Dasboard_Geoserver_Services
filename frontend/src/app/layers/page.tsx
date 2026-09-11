@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import useSWR from 'swr';
-import { Layers, Search, Eye } from 'lucide-react';
+import { Layers, Search, Eye, Database, Map, FileJson } from 'lucide-react';
 import Link from 'next/link';
 import { Header } from '@/components/layout/header';
 import { Card, CardContent } from '@/components/ui/card';
@@ -12,14 +12,22 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ErrorState, EmptyState } from '@/components/states';
-import { fetcher, type NamedRef } from '@/lib/api';
+import { fetcher, type LayerDetail } from '@/lib/api';
 
 export default function LayersPage() {
-  const { data, error, isLoading } = useSWR<NamedRef[]>('/geoserver/layers', fetcher);
+  const { data, error, isLoading } = useSWR<LayerDetail[]>('/geoserver/layers', fetcher);
   const [q, setQ] = useState('');
 
   const filtered = useMemo(
-    () => (data ?? []).filter((l) => l.name.toLowerCase().includes(q.toLowerCase())),
+    () =>
+      (data ?? []).filter((l) => {
+        const needle = q.toLowerCase();
+        return (
+          l.name.toLowerCase().includes(needle) ||
+          (l.store ?? '').toLowerCase().includes(needle) ||
+          (l.type ?? '').toLowerCase().includes(needle)
+        );
+      }),
     [data, q]
   );
 
@@ -30,7 +38,7 @@ export default function LayersPage() {
         <div className="relative max-w-sm">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
-            placeholder="Cari layer…"
+            placeholder="Cari layer, store, atau tipe…"
             value={q}
             onChange={(e) => setQ(e.target.value)}
             className="pl-9"
@@ -56,18 +64,55 @@ export default function LayersPage() {
                       </span>
                     </TableHead>
                     <TableHead>Workspace</TableHead>
+                    <TableHead>
+                      <span className="inline-flex items-center gap-2">
+                        <Database className="h-4 w-4" /> Store
+                      </span>
+                    </TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Service</TableHead>
                     <TableHead className="text-right">Aksi</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filtered.map((layer, i) => {
-                    const ws = layer.name.includes(':') ? layer.name.split(':')[0] : '—';
+                    const ws = layer.workspace ?? (layer.name.includes(':') ? layer.name.split(':')[0] : '—');
                     return (
                       <TableRow key={layer.name}>
                         <TableCell className="text-muted-foreground">{i + 1}</TableCell>
                         <TableCell className="font-medium">{layer.name}</TableCell>
                         <TableCell>
                           <Badge variant="secondary">{ws}</Badge>
+                        </TableCell>
+                        <TableCell>{layer.store ?? '—'}</TableCell>
+                        <TableCell>
+                          {layer.type ? (
+                            <Badge variant={layer.type.toUpperCase() === 'VECTOR' ? 'default' : 'secondary'}>
+                              {layer.type}
+                            </Badge>
+                          ) : (
+                            '—'
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1">
+                            {layer.wms && (
+                              <Button asChild variant="outline" size="sm">
+                                <a href={layer.wms} target="_blank" rel="noopener noreferrer">
+                                  <Map className="mr-1 h-3.5 w-3.5" /> WMS
+                                </a>
+                              </Button>
+                            )}
+                            {layer.wfs ? (
+                              <Button asChild variant="outline" size="sm">
+                                <a href={layer.wfs} target="_blank" rel="noopener noreferrer">
+                                  <FileJson className="mr-1 h-3.5 w-3.5" /> WFS
+                                </a>
+                              </Button>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">WFS N/A</span>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell className="text-right">
                           <Button asChild variant="ghost" size="sm">

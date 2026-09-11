@@ -51,8 +51,7 @@ geoserverRouter.get(
 geoserverRouter.get(
   '/layers',
   asyncHandler(async (_req, res) => {
-    const data = await geoserverService.layers();
-    res.json(toArray(data?.layers?.layer));
+    res.json(await geoserverService.layersDetailed());
   })
 );
 

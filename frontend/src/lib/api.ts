@@ -48,6 +48,16 @@ export interface NamedRef {
   href: string;
 }
 
+export interface LayerDetail {
+  name: string;
+  workspace: string | null;
+  store: string | null;
+  type: string | null;
+  wms: string | null;
+  wfs: string | null;
+  href: string;
+}
+
 export interface GsEndpoints {
   base: string;
   wms: string;
