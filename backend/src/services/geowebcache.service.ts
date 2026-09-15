@@ -65,8 +65,8 @@ class GeoWebCacheService {
     try {
       const [layers, gridsets] = await Promise.all([this.layers(), this.gridSets()]);
       return {
-        cachedLayers: toArray(layers?.layers?.string).length,
-        gridSets: toArray(gridsets?.gridSets?.string).length,
+        cachedLayers: toArray(layers).length,
+        gridSets: toArray(gridsets).length,
         online: true,
       };
     } catch {

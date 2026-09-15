@@ -1,4 +1,5 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+// Relative path → Next.js rewrite proxy handles backend forwarding (no browser CORS)
+const API_BASE = '';
 
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}/api${path}`, {

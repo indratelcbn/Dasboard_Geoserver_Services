@@ -97,54 +97,71 @@ services:
     networks:
       - gis
 
-  # --- Dashboard services ---
+   # --- Dashboard services ---
+
   dashboard-backend:
     build: ./backend
     container_name: dashboard-backend
     restart: unless-stopped
+
     depends_on:
       - geoserver
       - postgis
       - appdb
+
     environment:
       PORT: 4000
       NODE_ENV: production
-      CORS_ORIGIN: http://10.10.175.112:3000
+
+      CORS_ORIGIN: http://10.10.175.112
+
       GEOSERVER_URL: http://geoserver:8080/geoserver
       GEOSERVER_PUBLIC_URL: http://10.10.175.112/geoserver
+
       GEOSERVER_USER: admin
       GEOSERVER_PASSWORD: Admin@123
+
       PGHOST: postgis
       PGPORT: 5432
       PGUSER: postgres
       PGPASSWORD: postgres123
       PGDATABASE: geodb
+
       DATABASE_URL: postgresql://appuser:app123@appdb:5432/appdb
+
       NAS_SOURCE_PREFIX: /data/nasdata3
       NAS_MOUNT_PATH: /data/nasdata3
+
     volumes:
       - /mnt/nasdata3:/data/nasdata3:ro
-    ports:
-      - "4000:4000"
+
+    expose:
+      - "4000"
+
     networks:
       - gis
+
 
   dashboard-frontend:
     build:
       context: ./frontend
       args:
-        NEXT_PUBLIC_API_URL: http://10.10.175.112:4000
+        NEXT_PUBLIC_API_URL: /api
+
     container_name: dashboard-frontend
     restart: unless-stopped
+
     depends_on:
       - dashboard-backend
+
     environment:
-      NEXT_PUBLIC_API_URL: http://10.10.175.112:4000
-    ports:
-      - "3000:3000"
+      NEXT_PUBLIC_API_URL: /api
+
+    expose:
+      - "3000"
+
     networks:
       - gis
-
 networks:
   gis:
     driver: bridge
