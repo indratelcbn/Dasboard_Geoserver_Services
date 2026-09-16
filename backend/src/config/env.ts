@@ -32,6 +32,8 @@ export const config = {
     sourcePrefix: (process.env.NAS_SOURCE_PREFIX ?? '/data/nasdata3').replace(/\/$/, ''),
     mountPath: (process.env.NAS_MOUNT_PATH ?? '/data/nasdata3').replace(/\/$/, ''),
   },
+  gwcCachePath: (process.env.GWC_CACHE_PATH ?? '/opt/gwc_cache').replace(/\/$/, ''),
+
 };
 
 export type AppConfig = typeof config;

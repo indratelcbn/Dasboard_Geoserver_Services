@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import useSWR from 'swr';
-import { HardDrive, Trash2, Grid3x3 } from 'lucide-react';
+import { HardDrive, Trash2, Grid3x3, FolderOpen } from 'lucide-react';
 import { Header } from '@/components/layout/header';
 import { StatCard } from '@/components/stat-card';
 import { Card, CardContent } from '@/components/ui/card';
@@ -18,9 +18,24 @@ interface GwcSummary {
   online: boolean;
 }
 
+interface LayerCacheInfo {
+  name: string;
+  blobStoreId: string | null;
+  cachePath: string;
+  cacheSize: number | null;
+}
+
+function formatBytes(bytes: number | null): string {
+  if (bytes === null) return '—';
+  if (bytes === 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
+}
+
 export default function CachePage() {
   const { data: summary } = useSWR<GwcSummary>('/gwc/summary', fetcher);
-  const { data: layers, error, isLoading, mutate } = useSWR<string[]>('/gwc/layers', fetcher);
+  const { data: layers, error, isLoading, mutate } = useSWR<LayerCacheInfo[]>('/gwc/layers-info', fetcher);
   const [busy, setBusy] = useState<string | null>(null);
 
   async function truncate(name: string) {
@@ -59,23 +74,34 @@ export default function CachePage() {
                   <TableRow>
                     <TableHead className="w-12">#</TableHead>
                     <TableHead>Cached Layer</TableHead>
+                    <TableHead className="w-32 text-right">Ukuran Cache</TableHead>
+                    <TableHead>Lokasi Cache</TableHead>
                     <TableHead className="text-right">Aksi</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {layers.map((name, i) => (
-                    <TableRow key={name}>
+                  {layers.map((layer, i) => (
+                    <TableRow key={layer.name}>
                       <TableCell className="text-muted-foreground">{i + 1}</TableCell>
-                      <TableCell className="font-medium">{name}</TableCell>
+                      <TableCell className="font-medium">{layer.name}</TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {formatBytes(layer.cacheSize)}
+                      </TableCell>
+                      <TableCell>
+                        <span className="flex items-center gap-1 text-xs text-muted-foreground font-mono break-all">
+                          <FolderOpen className="h-3 w-3 shrink-0" />
+                          {layer.cachePath}
+                        </span>
+                      </TableCell>
                       <TableCell className="text-right">
                         <Button
                           variant="outline"
                           size="sm"
-                          disabled={busy === name}
-                          onClick={() => truncate(name)}
+                          disabled={busy === layer.name}
+                          onClick={() => truncate(layer.name)}
                         >
                           <Trash2 className="mr-1 h-4 w-4" />
-                          {busy === name ? 'Truncating…' : 'Truncate'}
+                          {busy === layer.name ? 'Truncating…' : 'Truncate'}
                         </Button>
                       </TableCell>
                     </TableRow>
@@ -89,3 +115,4 @@ export default function CachePage() {
     </div>
   );
 }
+

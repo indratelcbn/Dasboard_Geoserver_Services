@@ -1,6 +1,37 @@
 import axios, { AxiosInstance } from 'axios';
+import fs from 'fs/promises';
+import path from 'path';
 import { config } from '../config/env.js';
 import { toArray } from './geoserver.service.js';
+
+export interface LayerCacheInfo {
+  name: string;
+  blobStoreId: string | null;
+  cachePath: string;
+  cacheSize: number | null; // bytes; null if inaccessible
+}
+
+async function getDirSize(dir: string): Promise<number> {
+  let total = 0;
+  let entries;
+  try {
+    entries = await fs.readdir(dir, { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      total += await getDirSize(full);
+    } else {
+      try {
+        const stat = await fs.stat(full);
+        total += stat.size;
+      } catch { /* skip */ }
+    }
+  }
+  return total;
+}
 
 /**
  * GeoWebCache (embedded in GeoServer) REST API wrapper.
@@ -72,6 +103,35 @@ class GeoWebCacheService {
     } catch {
       return { cachedLayers: 0, gridSets: 0, online: false };
     }
+  }
+
+  /** All cached layers enriched with cache path and disk size. */
+  async layersInfo(): Promise<LayerCacheInfo[]> {
+    const data = await this.layers();
+    const names: string[] = toArray(data);
+
+    return Promise.all(
+      names.map(async (name) => {
+        let blobStoreId: string | null = null;
+        try {
+          const detail = await this.layer(name);
+          const ld = detail?.GeoServerLayer ?? detail;
+          blobStoreId = ld?.blobStoreId ?? null;
+        } catch { /* detail fetch failed */ }
+
+        // GWC default file blobstore stores layer tiles in {gwcCachePath}/{name_colon_as_underscore}/
+        const dirName = name.replace(':', '_');
+        const cachePath = path.posix.join(config.gwcCachePath, dirName);
+
+        let cacheSize: number | null = null;
+        try {
+          await fs.access(cachePath);
+          cacheSize = await getDirSize(cachePath);
+        } catch { /* directory not accessible */ }
+
+        return { name, blobStoreId, cachePath, cacheSize };
+      }),
+    );
   }
 }
 

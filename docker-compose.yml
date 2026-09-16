@@ -132,8 +132,11 @@ services:
       NAS_SOURCE_PREFIX: /data/nasdata3
       NAS_MOUNT_PATH: /data/nasdata3
 
+      GWC_CACHE_PATH: /opt/gwc_cache
+
     volumes:
       - /mnt/nasdata3:/data/nasdata3:ro
+      - ./geoserver/data/gwc:/opt/gwc_cache:ro
 
     expose:
       - "4000"

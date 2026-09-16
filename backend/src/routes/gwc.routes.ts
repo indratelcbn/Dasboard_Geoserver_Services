@@ -21,6 +21,13 @@ gwcRouter.get(
 );
 
 gwcRouter.get(
+  '/layers-info',
+  asyncHandler(async (_req, res) => {
+    res.json(await gwcService.layersInfo());
+  })
+);
+
+gwcRouter.get(
   '/gridsets',
   asyncHandler(async (_req, res) => {
     const data = await gwcService.gridSets();
