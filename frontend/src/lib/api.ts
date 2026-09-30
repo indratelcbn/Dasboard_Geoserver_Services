@@ -23,6 +23,62 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
 /** SWR fetcher. */
 export const fetcher = <T>(path: string) => apiFetch<T>(path);
 
+export interface UploadShapefileRequest {
+  file: File;
+  targetId: string;
+  workspace: string;
+  schema: string;
+  storeName?: string;
+  layerName?: string;
+  overwrite: boolean;
+}
+
+export async function uploadShapefileImport(
+  payload: UploadShapefileRequest,
+  onUploadProgress?: (progress: number) => void
+): Promise<ShapefileImportJob> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${API_BASE}/api/geoserver/imports/shapefile`);
+    xhr.setRequestHeader('Content-Type', 'application/zip');
+    xhr.setRequestHeader('X-Upload-File-Name', encodeURIComponent(payload.file.name));
+    xhr.setRequestHeader('X-Target-Id', payload.targetId);
+    xhr.setRequestHeader('X-Workspace', payload.workspace);
+    xhr.setRequestHeader('X-Schema', payload.schema);
+    xhr.setRequestHeader('X-Overwrite', String(payload.overwrite));
+
+    if (payload.storeName?.trim()) {
+      xhr.setRequestHeader('X-Store-Name', payload.storeName.trim());
+    }
+
+    if (payload.layerName?.trim()) {
+      xhr.setRequestHeader('X-Layer-Name', payload.layerName.trim());
+    }
+
+    xhr.upload.onprogress = (event) => {
+      if (!event.lengthComputable) return;
+      onUploadProgress?.(Math.round((event.loaded / event.total) * 100));
+    };
+
+    xhr.onload = () => {
+      try {
+        const body = xhr.responseText ? JSON.parse(xhr.responseText) : null;
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve(body as ShapefileImportJob);
+          return;
+        }
+
+        reject(new Error(body?.message ?? `Request failed (${xhr.status})`));
+      } catch (error) {
+        reject(error instanceof Error ? error : new Error('Upload response is invalid.'));
+      }
+    };
+
+    xhr.onerror = () => reject(new Error('Upload failed.'));
+    xhr.send(payload.file);
+  });
+}
+
 // ---- Shared types ----
 export interface HealthResponse {
   timestamp: string;
@@ -102,6 +158,39 @@ export interface PgTable {
   size: string;
   published: boolean;
   layers: string[];
+}
+
+export interface ShapefileImportJob {
+  id: string;
+  status: 'queued' | 'running' | 'done' | 'failed';
+  step:
+    | 'uploaded'
+    | 'validating'
+    | 'reading-metadata'
+    | 'importing-postgis'
+    | 'creating-datastore'
+    | 'publishing-geoserver'
+    | 'done'
+    | 'failed';
+  progress: number;
+  fileName: string;
+  targetId: string;
+  workspace: string;
+  schema: string;
+  storeName: string;
+  layerName: string | null;
+  overwrite: boolean;
+  createdAt: string;
+  updatedAt: string;
+  messages: string[];
+  error: string | null;
+  result: {
+    qualifiedLayer: string;
+    storeName: string;
+    tableName: string;
+    schema: string;
+    targetId: string;
+  } | null;
 }
 
 export interface FileStore {

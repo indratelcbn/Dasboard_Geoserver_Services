@@ -117,6 +117,28 @@ Backend `.env` (lihat `backend/.env.example`):
 | GET    | `/api/postgres/tables`                  | Tabel PostgreSQL/PostGIS         |
 | GET    | `/api/postgres/spatial-columns`         | Kolom geometri terdaftar         |
 
+## Import Shapefile ZIP ke PostGIS
+
+Menu Layers sekarang mendukung alur berikut:
+
+- upload arsip ZIP shapefile
+- pilih target PostGIS (`primary` atau target tambahan)
+- import ke PostGIS menggunakan `ogr2ogr`
+- tampilkan progres job import
+- auto-publish layer ke GeoServer setelah import selesai
+
+Prasyarat runtime:
+
+- backend harus punya binary `ogrinfo` dan `ogr2ogr`
+- image production backend sudah disiapkan di [backend/Dockerfile](backend/Dockerfile)
+- untuk local dev di luar Docker, install GDAL lalu pastikan `ogrinfo` dan `ogr2ogr` ada di `PATH`, atau override dengan env berikut:
+
+```env
+SHAPEFILE_IMPORT_DIR=.tmp/imports
+OGR2OGR_BIN=ogr2ogr
+OGRINFO_BIN=ogrinfo
+```
+
 Contoh konfigurasi tambahan untuk server `10.10.175.113:5432`:
 
 ```env

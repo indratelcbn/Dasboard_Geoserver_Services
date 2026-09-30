@@ -1,9 +1,16 @@
+import { createWriteStream } from 'fs';
+import { pipeline } from 'stream/promises';
 import { Router } from 'express';
 import { geoserverService, toArray } from '../services/geoserver.service.js';
 import { asyncHandler } from '../middleware/error.js';
 import { config } from '../config/env.js';
+import { shapefileImportService } from '../services/shapefile-import.service.js';
 
 export const geoserverRouter = Router();
+
+function headerValue(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
 
 geoserverRouter.get(
   '/summary',
@@ -33,6 +40,61 @@ geoserverRouter.get(
     res.json(toArray(data?.workspaces?.workspace));
   })
 );
+
+geoserverRouter.get('/imports', (_req, res) => {
+  res.json(shapefileImportService.listJobs());
+});
+
+geoserverRouter.get('/imports/:id', (req, res) => {
+  const job = shapefileImportService.getJob(req.params.id);
+  if (!job) {
+    res.status(404).json({ error: true, message: 'Import job not found' });
+    return;
+  }
+  res.json(job);
+});
+
+geoserverRouter.post('/imports/shapefile', async (req, res, next) => {
+  try {
+    const fileName = decodeURIComponent(headerValue(req.headers['x-upload-file-name']) ?? 'upload.zip');
+    const targetId = headerValue(req.headers['x-target-id']) ?? config.postgres.defaultTargetId;
+    const workspace = headerValue(req.headers['x-workspace']) ?? '';
+    const schema = headerValue(req.headers['x-schema']) ?? 'public';
+    const storeName = headerValue(req.headers['x-store-name']);
+    const layerName = headerValue(req.headers['x-layer-name']);
+    const overwrite = headerValue(req.headers['x-overwrite']) === 'true';
+
+    if (!workspace.trim()) {
+      res.status(400).json({ error: true, message: 'Workspace GeoServer wajib dipilih.' });
+      return;
+    }
+
+    const contentLength = Number(req.headers['content-length'] ?? 0);
+    if (!Number.isFinite(contentLength) || contentLength <= 0) {
+      res.status(400).json({ error: true, message: 'File ZIP shapefile tidak ditemukan.' });
+      return;
+    }
+
+    await shapefileImportService.ensureStagingDir();
+    const uploadPath = shapefileImportService.buildUploadPath(fileName);
+    await pipeline(req, createWriteStream(uploadPath));
+
+    const job = await shapefileImportService.createJob({
+      fileName,
+      filePath: uploadPath,
+      targetId,
+      workspace,
+      schema,
+      storeName,
+      layerName,
+      overwrite,
+    });
+
+    res.status(202).json(job);
+  } catch (error) {
+    next(error);
+  }
+});
 
 geoserverRouter.get(
   '/workspaces/:name/stores',

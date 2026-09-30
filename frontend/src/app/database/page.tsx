@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import useSWR from 'swr';
 import { CheckCircle2, Database, MapPin, Server, AlertTriangle } from 'lucide-react';
 import { Header } from '@/components/layout/header';
@@ -14,6 +14,8 @@ import { ErrorState, EmptyState } from '@/components/states';
 import { fetcher, type PgTable, type PostgresStatus, type PostgresTarget } from '@/lib/api';
 import { formatNumber } from '@/lib/utils';
 
+const IMPORT_REFRESH_EVENT = 'shapefile-import:done';
+
 export default function DatabasePage() {
   const [selectedTarget, setSelectedTarget] = useState<string | null>(null);
   const { data: targets, error: targetsError, isLoading: isTargetsLoading } = useSWR<PostgresTarget[]>(
@@ -22,7 +24,7 @@ export default function DatabasePage() {
   );
   const activeTarget = selectedTarget ?? targets?.[0]?.id ?? null;
   const targetQuery = activeTarget ? `?target=${encodeURIComponent(activeTarget)}` : null;
-  const { data: status, error: statusError } = useSWR<PostgresStatus>(
+  const { data: status, error: statusError, mutate: mutateStatus } = useSWR<PostgresStatus>(
     targetQuery ? `/postgres/status${targetQuery}` : null,
     fetcher
   );
@@ -30,9 +32,32 @@ export default function DatabasePage() {
     data: tables,
     error: tablesError,
     isLoading: isTablesLoading,
+    mutate: mutateTables,
   } = useSWR<PgTable[]>(targetQuery ? `/postgres/tables${targetQuery}` : null, fetcher);
   const error = targetsError ?? statusError ?? tablesError;
   const isLoading = isTargetsLoading || (Boolean(targetQuery) && !tables && !tablesError);
+
+  useEffect(() => {
+    const refresh = () => {
+      void mutateStatus();
+      void mutateTables();
+    };
+
+    const onImportDone = () => refresh();
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === 'shapefile-import:last-success') {
+        refresh();
+      }
+    };
+
+    window.addEventListener(IMPORT_REFRESH_EVENT, onImportDone);
+    window.addEventListener('storage', onStorage);
+
+    return () => {
+      window.removeEventListener(IMPORT_REFRESH_EVENT, onImportDone);
+      window.removeEventListener('storage', onStorage);
+    };
+  }, [mutateStatus, mutateTables]);
 
   return (
     <div>

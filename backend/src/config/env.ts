@@ -1,3 +1,4 @@
+import path from 'path';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -113,6 +114,11 @@ export const config = {
     // GeoServer melihat file di sourcePrefix; backend mengaksesnya via mountPath.
     sourcePrefix: (process.env.NAS_SOURCE_PREFIX ?? '/data/nasdata3').replace(/\/$/, ''),
     mountPath: (process.env.NAS_MOUNT_PATH ?? '/data/nasdata3').replace(/\/$/, ''),
+  },
+  imports: {
+    stagingDir: path.resolve(process.cwd(), process.env.SHAPEFILE_IMPORT_DIR ?? '.tmp/imports'),
+    ogr2ogrBin: process.env.OGR2OGR_BIN ?? 'ogr2ogr',
+    ogrinfoBin: process.env.OGRINFO_BIN ?? 'ogrinfo',
   },
   gwcCachePath: (process.env.GWC_CACHE_PATH ?? '/opt/gwc_cache').replace(/\/$/, ''),
 

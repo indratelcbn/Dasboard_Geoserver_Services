@@ -25,6 +25,13 @@ class GeoServerService {
     return data;
   }
 
+  private async post<T>(path: string, body: unknown): Promise<T> {
+    const { data } = await this.client.post<T>(path, body, {
+      headers: { 'Content-Type': 'application/json' },
+    });
+    return data;
+  }
+
   /** GeoServer version / manifest info. */
   async about(): Promise<any> {
     return this.get('/about/version.json');
@@ -144,6 +151,78 @@ class GeoServerService {
     return this.get('/fonts.json');
   }
 
+  async ensurePostgisDataStore(
+    workspace: string,
+    name: string,
+    connection: {
+      host: string;
+      port: number;
+      database: string;
+      schema: string;
+      user: string;
+      password: string;
+    }
+  ): Promise<void> {
+    try {
+      await this.dataStore(workspace, name);
+      return;
+    } catch (error) {
+      if (!GeoServerService.isNotFound(error)) {
+        throw error;
+      }
+    }
+
+    await this.post(`/workspaces/${encodeURIComponent(workspace)}/datastores`, {
+      dataStore: {
+        name,
+        enabled: true,
+        type: 'PostGIS',
+        connectionParameters: {
+          entry: [
+            { '@key': 'dbtype', $: 'postgis' },
+            { '@key': 'host', $: connection.host },
+            { '@key': 'port', $: String(connection.port) },
+            { '@key': 'database', $: connection.database },
+            { '@key': 'schema', $: connection.schema },
+            { '@key': 'user', $: connection.user },
+            { '@key': 'passwd', $: connection.password },
+            { '@key': 'Expose primary keys', $: 'true' },
+            { '@key': 'validate connections', $: 'true' },
+            { '@key': 'Loose bbox', $: 'true' },
+          ],
+        },
+      },
+    });
+  }
+
+  async ensureFeatureTypePublished(
+    workspace: string,
+    datastore: string,
+    layerName: string,
+    title?: string
+  ): Promise<void> {
+    try {
+      await this.featureType(workspace, datastore, layerName);
+      return;
+    } catch (error) {
+      if (!GeoServerService.isNotFound(error)) {
+        throw error;
+      }
+    }
+
+    await this.post(
+      `/workspaces/${encodeURIComponent(workspace)}/datastores/${encodeURIComponent(datastore)}/featuretypes`,
+      {
+        featureType: {
+          name: layerName,
+          nativeName: layerName,
+          title: title ?? layerName,
+          enabled: true,
+        },
+      }
+    );
+  }
+
   /**
    * Aggregated dashboard summary: counts of the main GeoServer resources.
    */
@@ -215,6 +294,10 @@ class GeoServerService {
       };
     }
     return { status: 500, message: (err as Error)?.message ?? 'Unknown error' };
+  }
+
+  static isNotFound(err: unknown): boolean {
+    return err instanceof AxiosError && err.response?.status === 404;
   }
 }
 
