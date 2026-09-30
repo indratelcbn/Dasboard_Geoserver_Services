@@ -36,8 +36,34 @@ export interface HealthResponse {
     online: boolean;
   };
   geowebcache: { cachedLayers: number; gridSets: number; online: boolean };
-  postgres: { online: boolean; version: string | null; postgis: string | null };
+  postgres: {
+    online: boolean;
+    onlineCount: number;
+    total: number;
+    primaryTargetId: string;
+    name: string | null;
+    host: string | null;
+    port: number | null;
+    database: string | null;
+    version: string | null;
+    postgis: string | null;
+    targets: PostgresStatus[];
+  };
   storage: { online: boolean; mountPath: string; stores: number };
+}
+
+export interface PostgresTarget {
+  id: string;
+  name: string;
+  host: string;
+  port: number;
+  database: string;
+}
+
+export interface PostgresStatus extends PostgresTarget {
+  online: boolean;
+  version: string | null;
+  postgis: string | null;
 }
 
 export interface Workspace {

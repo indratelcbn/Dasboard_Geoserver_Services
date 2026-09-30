@@ -89,15 +89,16 @@ Backend `.env` (lihat `backend/.env.example`):
 | `GEOSERVER_PUBLIC_URL` | `http://localhost:8080/geoserver`    | URL WMS/WFS untuk peta OpenLayers |
 | `GEOSERVER_USER`       | `admin`                              | Admin GeoServer                  |
 | `GEOSERVER_PASSWORD`   | `Admin@123`                          | Password admin                   |
-| `PGHOST`/`PGPORT`      | `localhost` / `5432`                 | PostgreSQL                       |
-| `PGDATABASE`           | `geodb`                              | Database PostGIS                 |
+| `PGHOST`/`PGPORT`      | `localhost` / `5432`                 | PostgreSQL target utama          |
+| `PGDATABASE`           | `geodb`                              | Database PostGIS utama           |
+| `POSTGRES_TARGETS`     | `[{"host":"10.10.175.113","port":5432,"database":"gis_database","user":"postgres","password":"postgresSTIG!"}]` | Target PostGIS tambahan dalam format JSON |
 
 ## Fitur
 
 - **Dashboard** — ringkasan jumlah workspaces, layers, layer groups, styles, stores, cached layers, serta status kesehatan tiap service.
 - **Workspaces / Layers / Styles** — daftar resource GeoServer dengan pencarian.
 - **Tile Cache (GWC)** — lihat cached layers, grid sets, dan truncate cache per layer.
-- **PostGIS Database** — daftar tabel dengan estimasi baris, ukuran, dan penanda tabel spasial.
+- **PostGIS Database** — daftar tabel dengan estimasi baris, ukuran, dan penanda tabel spasial, termasuk pemilihan beberapa target PostGIS.
 - **Map Preview** — visualisasi layer via WMS menggunakan OpenLayers.
 
 ## REST API (Backend)
@@ -112,5 +113,20 @@ Backend `.env` (lihat `backend/.env.example`):
 | GET    | `/api/geoserver/endpoints`              | URL WMS/WFS/WMTS publik          |
 | GET    | `/api/gwc/layers`                       | Cached layers                    |
 | POST   | `/api/gwc/layers/:name/truncate`        | Kosongkan cache layer            |
+| GET    | `/api/postgres/targets`                 | Daftar target PostgreSQL/PostGIS |
 | GET    | `/api/postgres/tables`                  | Tabel PostgreSQL/PostGIS         |
 | GET    | `/api/postgres/spatial-columns`         | Kolom geometri terdaftar         |
+
+Contoh konfigurasi tambahan untuk server `10.10.175.113:5432`:
+
+```env
+PGNAME=PostGIS 10.10.175.112
+PGHOST=10.10.175.112
+PGPORT=5432
+PGUSER=postgres
+PGPASSWORD=postgres123
+PGDATABASE=geodb
+POSTGRES_TARGETS=[{"id":"postgis-113","name":"PostGIS 10.10.175.113","host":"10.10.175.113","port":5432,"database":"gis_database","user":"postgres","password":"postgresSTIG!"}]
+```
+
+Jika server tambahan memakai database atau kredensial berbeda, isi override langsung di JSON target seperti contoh di atas.

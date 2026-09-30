@@ -126,6 +126,8 @@ services:
       PGUSER: postgres
       PGPASSWORD: postgres123
       PGDATABASE: geodb
+      PGNAME: Primary PostGIS
+      POSTGRES_TARGETS: '[{"id":"postgis-113","name":"PostGIS 10.10.175.113","host":"10.10.175.113","port":5432,"database":"gis_database","user":"postgres","password":"postgresSTIG!"}]'
 
       DATABASE_URL: postgresql://appuser:app123@appdb:5432/appdb
 

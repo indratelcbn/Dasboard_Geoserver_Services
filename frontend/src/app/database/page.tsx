@@ -1,58 +1,112 @@
 'use client';
 
+import { useState } from 'react';
 import useSWR from 'swr';
-import { Database, MapPin } from 'lucide-react';
+import { Database, MapPin, Server } from 'lucide-react';
 import { Header } from '@/components/layout/header';
 import { StatusBadge } from '@/components/status-badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { ErrorState, EmptyState } from '@/components/states';
-import { fetcher, type PgTable } from '@/lib/api';
+import { fetcher, type PgTable, type PostgresStatus, type PostgresTarget } from '@/lib/api';
 import { formatNumber } from '@/lib/utils';
 
-interface PgStatus {
-  online: boolean;
-  version: string | null;
-  postgis: string | null;
-}
-
 export default function DatabasePage() {
-  const { data: status } = useSWR<PgStatus>('/postgres/status', fetcher);
-  const { data: tables, error, isLoading } = useSWR<PgTable[]>('/postgres/tables', fetcher);
+  const [selectedTarget, setSelectedTarget] = useState<string | null>(null);
+  const { data: targets, error: targetsError, isLoading: isTargetsLoading } = useSWR<PostgresTarget[]>(
+    '/postgres/targets',
+    fetcher
+  );
+  const activeTarget = selectedTarget ?? targets?.[0]?.id ?? null;
+  const targetQuery = activeTarget ? `?target=${encodeURIComponent(activeTarget)}` : null;
+  const { data: status, error: statusError } = useSWR<PostgresStatus>(
+    targetQuery ? `/postgres/status${targetQuery}` : null,
+    fetcher
+  );
+  const {
+    data: tables,
+    error: tablesError,
+    isLoading: isTablesLoading,
+  } = useSWR<PgTable[]>(targetQuery ? `/postgres/tables${targetQuery}` : null, fetcher);
+  const error = targetsError ?? statusError ?? tablesError;
+  const isLoading = isTargetsLoading || (Boolean(targetQuery) && !tables && !tablesError);
 
   return (
     <div>
-      <Header title="PostGIS Database" subtitle="Tabel dan layer spasial pada PostgreSQL" />
+      <Header title="PostGIS Database" subtitle="Tabel dan layer spasial pada beberapa target PostgreSQL" />
       <div className="space-y-4 p-6">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Database className="h-4 w-4 text-primary" /> Connection
-            </CardTitle>
-            <StatusBadge online={status?.online} />
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Server</span>
-              <span className="max-w-[70%] truncate font-medium" title={status?.version ?? ''}>
-                {status?.version ?? '—'}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">PostGIS</span>
-              <span className="max-w-[70%] truncate font-medium" title={status?.postgis ?? ''}>
-                {status?.postgis ?? '—'}
-              </span>
-            </div>
-          </CardContent>
-        </Card>
+        <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Server className="h-4 w-4 text-primary" /> Targets
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {targets?.map((target) => (
+                <Button
+                  key={target.id}
+                  variant={activeTarget === target.id ? 'default' : 'outline'}
+                  className="h-auto w-full justify-start px-4 py-3 text-left"
+                  onClick={() => setSelectedTarget(target.id)}
+                >
+                  <span className="flex flex-col items-start">
+                    <span className="font-medium">{target.name}</span>
+                    <span className="text-xs opacity-80">{`${target.host}:${target.port}/${target.database}`}</span>
+                  </span>
+                </Button>
+              ))}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Database className="h-4 w-4 text-primary" /> Connection
+              </CardTitle>
+              <StatusBadge online={status?.online} />
+            </CardHeader>
+            <CardContent className="space-y-2 text-sm">
+              <div className="flex justify-between gap-4">
+                <span className="text-muted-foreground">Target</span>
+                <span className="max-w-[70%] truncate font-medium" title={status?.name ?? ''}>
+                  {status?.name ?? '—'}
+                </span>
+              </div>
+              <div className="flex justify-between gap-4">
+                <span className="text-muted-foreground">Endpoint</span>
+                <span
+                  className="max-w-[70%] truncate font-medium"
+                  title={status ? `${status.host}:${status.port}/${status.database}` : ''}
+                >
+                  {status ? `${status.host}:${status.port}/${status.database}` : '—'}
+                </span>
+              </div>
+              <div className="flex justify-between gap-4">
+                <span className="text-muted-foreground">Server</span>
+                <span className="max-w-[70%] truncate font-medium" title={status?.version ?? ''}>
+                  {status?.version ?? '—'}
+                </span>
+              </div>
+              <div className="flex justify-between gap-4">
+                <span className="text-muted-foreground">PostGIS</span>
+                <span className="max-w-[70%] truncate font-medium" title={status?.postgis ?? ''}>
+                  {status?.postgis ?? '—'}
+                </span>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
 
         {error ? (
           <ErrorState message={error.message} />
         ) : isLoading ? (
           <Skeleton className="h-64 w-full" />
+        ) : !activeTarget ? (
+          <EmptyState message="Belum ada target PostGIS yang dikonfigurasi." />
         ) : !tables || tables.length === 0 ? (
           <EmptyState message="Tidak ada tabel ditemukan." />
         ) : (

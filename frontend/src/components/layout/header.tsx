@@ -14,7 +14,13 @@ export function Header({ title, subtitle }: { title: string; subtitle?: string }
   const services = [
     { label: 'GeoServer', online: data?.geoserver.online },
     { label: 'GWC', online: data?.geowebcache.online },
-    { label: 'PostGIS', online: data?.postgres.online },
+    {
+      label: 'PostGIS',
+      online:
+        data?.postgres.total && data.postgres.total > 0
+          ? data.postgres.onlineCount === data.postgres.total
+          : data?.postgres.online,
+    },
   ];
 
   return (

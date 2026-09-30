@@ -36,6 +36,10 @@ app.use((_req, res) => {
 app.use(errorHandler);
 
 app.listen(config.port, () => {
+  const primaryPostgres =
+    config.postgres.targets.find((target) => target.id === config.postgres.defaultTargetId) ??
+    config.postgres.targets[0];
+
   // eslint-disable-next-line no-console
   console.log(`\n  Dashboard Geoserver Services API`);
   // eslint-disable-next-line no-console
@@ -43,5 +47,8 @@ app.listen(config.port, () => {
   // eslint-disable-next-line no-console
   console.log(`  ▸ GeoServer:   ${config.geoserver.url}`);
   // eslint-disable-next-line no-console
-  console.log(`  ▸ PostGIS:     ${config.postgres.host}:${config.postgres.port}/${config.postgres.database}\n`);
+  console.log(
+    `  ▸ PostGIS:     ${primaryPostgres.host}:${primaryPostgres.port}/${primaryPostgres.database} (${config.postgres.targets.length} target)` +
+      `${config.postgres.targets.length > 1 ? 's' : ''}\n`
+  );
 });

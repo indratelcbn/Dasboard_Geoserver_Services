@@ -18,7 +18,7 @@ apiRouter.get(
     const [geoserver, gwc, postgres, storage] = await Promise.all([
       geoserverService.summary(),
       gwcService.summary(),
-      postgresService.ping(),
+      postgresService.summary(),
       storageService.summary(),
     ]);
     res.json({

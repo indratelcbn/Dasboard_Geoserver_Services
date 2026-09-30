@@ -70,9 +70,11 @@ export default function DashboardPage() {
           <ServiceCard
             icon={Database}
             title="PostgreSQL / PostGIS"
-            online={pg?.online}
+            online={pg?.total ? pg.onlineCount === pg.total : pg?.online}
             rows={[
-              ['Server', pg?.version ? pg.version.split(' ').slice(0, 2).join(' ') : '—'],
+              ['Target', pg?.name ?? '—'],
+              ['Endpoint', pg?.host ? `${pg.host}:${pg.port}/${pg.database}` : '—'],
+              ['Servers', pg?.total ? `${pg.onlineCount}/${pg.total} online` : '—'],
               ['PostGIS', pg?.postgis ? pg.postgis.split(' ')[1] ?? 'installed' : '—'],
             ]}
           />

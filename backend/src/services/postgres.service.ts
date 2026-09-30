@@ -1,52 +1,154 @@
 import { Pool } from 'pg';
-import { config } from '../config/env.js';
+import { config, type PostgresTargetConfig } from '../config/env.js';
 
-/**
- * PostgreSQL / PostGIS access. Read-only helpers used by the dashboard to
- * inspect the spatial database backing GeoServer.
- */
-const pool = new Pool({
-  host: config.postgres.host,
-  port: config.postgres.port,
-  user: config.postgres.user,
-  password: config.postgres.password,
-  database: config.postgres.database,
-  max: 5,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 5000,
-});
+export interface PostgresStatus {
+  id: string;
+  name: string;
+  host: string;
+  port: number;
+  database: string;
+  online: boolean;
+  version: string | null;
+  postgis: string | null;
+}
 
-pool.on('error', (err) => {
-  // eslint-disable-next-line no-console
-  console.error('[postgres] idle client error', err.message);
-});
+const pools = new Map<string, Pool>();
+
+function getTarget(targetId?: string): PostgresTargetConfig {
+  const resolvedId = targetId ?? config.postgres.defaultTargetId;
+  const target = config.postgres.targets.find((candidate) => candidate.id === resolvedId);
+
+  if (!target) {
+    throw new Error(`Unknown PostGIS target: ${resolvedId}`);
+  }
+
+  return target;
+}
+
+function getPool(targetId?: string): Pool {
+  const target = getTarget(targetId);
+  const existingPool = pools.get(target.id);
+
+  if (existingPool) {
+    return existingPool;
+  }
+
+  const pool = new Pool({
+    host: target.host,
+    port: target.port,
+    user: target.user,
+    password: target.password,
+    database: target.database,
+    max: 5,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 5000,
+  });
+
+  pool.on('error', (err) => {
+    // eslint-disable-next-line no-console
+    console.error(`[postgres:${target.id}] idle client error`, err.message);
+  });
+
+  pools.set(target.id, pool);
+  return pool;
+}
+
+function createStatus(
+  target: PostgresTargetConfig,
+  status: Omit<PostgresStatus, 'id' | 'name' | 'host' | 'port' | 'database'>
+): PostgresStatus {
+  return {
+    id: target.id,
+    name: target.name,
+    host: target.host,
+    port: target.port,
+    database: target.database,
+    ...status,
+  };
+}
 
 export const postgresService = {
-  async ping(): Promise<{ online: boolean; version: string | null; postgis: string | null }> {
+  targets(): Array<Pick<PostgresStatus, 'id' | 'name' | 'host' | 'port' | 'database'>> {
+    return config.postgres.targets.map(({ id, name, host, port, database }) => ({
+      id,
+      name,
+      host,
+      port,
+      database,
+    }));
+  },
+
+  async ping(targetId?: string): Promise<PostgresStatus> {
+    const target = getTarget(targetId);
+    const pool = getPool(target.id);
+
     try {
       const client = await pool.connect();
       try {
-        const v = await client.query('SELECT version() AS version');
+        const versionResult = await client.query('SELECT version() AS version');
         let postgis: string | null = null;
+
         try {
-          const p = await client.query('SELECT PostGIS_Full_Version() AS postgis');
-          postgis = p.rows[0]?.postgis ?? null;
+          const postgisResult = await client.query('SELECT PostGIS_Full_Version() AS postgis');
+          postgis = postgisResult.rows[0]?.postgis ?? null;
         } catch {
           postgis = null;
         }
-        return { online: true, version: v.rows[0]?.version ?? null, postgis };
+
+        return createStatus(target, {
+          online: true,
+          version: versionResult.rows[0]?.version ?? null,
+          postgis,
+        });
       } finally {
         client.release();
       }
     } catch {
-      return { online: false, version: null, postgis: null };
+      return createStatus(target, {
+        online: false,
+        version: null,
+        postgis: null,
+      });
     }
   },
 
-  /** List user tables with row estimates and whether they contain geometry. */
-  async tables(): Promise<
-    Array<{ schema: string; table: string; rows: number; hasGeometry: boolean; size: string }>
-  > {
+  async summary(): Promise<{
+    online: boolean;
+    onlineCount: number;
+    total: number;
+    primaryTargetId: string;
+    name: string | null;
+    host: string | null;
+    port: number | null;
+    database: string | null;
+    version: string | null;
+    postgis: string | null;
+    targets: PostgresStatus[];
+  }> {
+    const targets = await Promise.all(config.postgres.targets.map((target) => this.ping(target.id)));
+    const primary =
+      targets.find((target) => target.id === config.postgres.defaultTargetId) ?? targets[0] ?? null;
+    const onlineCount = targets.filter((target) => target.online).length;
+
+    return {
+      online: onlineCount > 0,
+      onlineCount,
+      total: targets.length,
+      primaryTargetId: config.postgres.defaultTargetId,
+      name: primary?.name ?? null,
+      host: primary?.host ?? null,
+      port: primary?.port ?? null,
+      database: primary?.database ?? null,
+      version: primary?.version ?? null,
+      postgis: primary?.postgis ?? null,
+      targets,
+    };
+  },
+
+  async tables(
+    targetId?: string
+  ): Promise<Array<{ schema: string; table: string; rows: number; hasGeometry: boolean; size: string }>> {
+    const pool = getPool(targetId);
     const sql = `
       SELECT
         n.nspname                                   AS schema,
@@ -67,17 +169,18 @@ export const postgresService = {
       LIMIT 500;
     `;
     const { rows } = await pool.query(sql);
-    return rows.map((r) => ({
-      schema: r.schema,
-      table: r.table,
-      rows: Number(r.rows),
-      hasGeometry: r.has_geometry,
-      size: r.size,
+
+    return rows.map((row) => ({
+      schema: row.schema,
+      table: row.table,
+      rows: Number(row.rows),
+      hasGeometry: row.has_geometry,
+      size: row.size,
     }));
   },
 
-  /** Registered spatial columns from PostGIS geometry_columns view. */
-  async spatialColumns(): Promise<any[]> {
+  async spatialColumns(targetId?: string): Promise<any[]> {
+    const pool = getPool(targetId);
     const sql = `
       SELECT f_table_schema AS schema, f_table_name AS "table",
              f_geometry_column AS geometry_column, coord_dimension AS dimension,
@@ -86,6 +189,7 @@ export const postgresService = {
       ORDER BY f_table_schema, f_table_name
       LIMIT 500;
     `;
+
     try {
       const { rows } = await pool.query(sql);
       return rows;
