@@ -263,7 +263,8 @@ class GeoServerService {
     workspace: string,
     datastore: string,
     layerName: string,
-    title?: string
+    title?: string,
+    nativeName?: string
   ): Promise<void> {
     try {
       await this.featureType(workspace, datastore, layerName);
@@ -279,7 +280,7 @@ class GeoServerService {
       {
         featureType: {
           name: layerName,
-          nativeName: layerName,
+          nativeName: nativeName ?? layerName,
           title: title ?? layerName,
           enabled: true,
         },

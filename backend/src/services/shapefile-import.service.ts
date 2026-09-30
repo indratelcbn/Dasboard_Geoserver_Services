@@ -44,6 +44,7 @@ export interface ShapefileImportJob {
 interface InternalJob extends ShapefileImportJob {
   filePath: string;
   sourceLayerName: string | null;
+  tableName: string | null;
 }
 
 interface CreateJobInput {
@@ -211,6 +212,7 @@ class ShapefileImportService {
       storeName,
       layerName: input.layerName?.trim() ? sanitizeIdentifier(input.layerName.trim(), 'layer_import') : null,
       sourceLayerName: null,
+      tableName: null,
       overwrite: input.overwrite,
       createdAt: now(),
       updatedAt: now(),
@@ -276,10 +278,11 @@ class ShapefileImportService {
       }
 
       const sourceLayerName = layers[0];
-      const finalLayerName = job.layerName ?? sanitizeIdentifier(sourceLayerName, 'layer_import');
+      const publishedLayerName = job.layerName ?? sanitizeIdentifier(sourceLayerName, 'layer_import');
+      const tableName = sanitizeIdentifier(sourceLayerName, 'layer_import').toLowerCase();
       job = this.update(
         id,
-        { layerName: finalLayerName, sourceLayerName },
+        { layerName: publishedLayerName, sourceLayerName, tableName },
         layers.length > 1
           ? `Ditemukan ${layers.length} layer; layer pertama ${sourceLayerName} dipilih untuk import.`
           : `Layer sumber terdeteksi: ${sourceLayerName}.`
@@ -288,7 +291,7 @@ class ShapefileImportService {
       const target = getTargetConfig(job.targetId);
       job = this.update(id, { step: 'importing-postgis', progress: 35 }, `Mengimpor ke PostGIS target ${target.name}.`);
 
-      const tableRef = `${job.schema}.${finalLayerName}`;
+      const tableRef = `${job.schema}.${tableName}`;
       const pgConnection = `PG:host=${target.host} port=${target.port} dbname=${target.database} user=${target.user} password=${target.password}`;
       const ogrArgs = [
         '-progress',
@@ -338,17 +341,23 @@ class ShapefileImportService {
         password: target.password,
       });
 
-      job = this.update(id, { step: 'publishing-geoserver', progress: 92 }, `Mempublikasikan layer ${job.workspace}:${finalLayerName}.`);
-      await geoserverService.ensureFeatureTypePublished(job.workspace, job.storeName, finalLayerName, finalLayerName);
+      job = this.update(id, { step: 'publishing-geoserver', progress: 92 }, `Mempublikasikan layer ${job.workspace}:${publishedLayerName}.`);
+      await geoserverService.ensureFeatureTypePublished(
+        job.workspace,
+        job.storeName,
+        publishedLayerName,
+        publishedLayerName,
+        tableName
+      );
 
       this.update(id, {
         status: 'done',
         step: 'done',
         progress: 100,
         result: {
-          qualifiedLayer: `${job.workspace}:${finalLayerName}`,
+          qualifiedLayer: `${job.workspace}:${publishedLayerName}`,
           storeName: job.storeName,
-          tableName: finalLayerName,
+          tableName,
           schema: job.schema,
           targetId: job.targetId,
         },
