@@ -95,8 +95,16 @@ function toVsiZipPath(filePath: string): string {
   return `/vsizip/${filePath.replace(/\\/g, '/')}`;
 }
 
+function normalizeOgrLayerName(value: string): string {
+  const trimmed = value.trim();
+  const match = /^(.*?)\s+\([^)]+\)$/.exec(trimmed);
+  return (match?.[1] ?? trimmed).trim();
+}
+
 function parseLayerNames(output: string): string[] {
-  const matches = [...output.matchAll(/^\s*\d+:\s*(.+)$/gm)].map((match) => match[1].trim());
+  const matches = [...output.matchAll(/^\s*\d+:\s*(.+)$/gm)].map((match) =>
+    normalizeOgrLayerName(match[1])
+  );
   return [...new Set(matches)].filter(Boolean);
 }
 
