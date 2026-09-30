@@ -313,7 +313,7 @@ class ShapefileImportService {
       ];
 
       if (job.overwrite) {
-        ogrArgs.push('-overwrite');
+        ogrArgs.push('-overwrite', '-lco', 'OVERWRITE=YES');
       }
 
       await runCommand(config.imports.ogr2ogrBin, ogrArgs, {
