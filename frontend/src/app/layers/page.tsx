@@ -15,6 +15,7 @@ import { ErrorState, EmptyState } from '@/components/states';
 import {
   fetcher,
   uploadShapefileImport,
+  type GeoServerPostgisStore,
   type LayerDetail,
   type PostgresTarget,
   type ShapefileImportJob,
@@ -50,6 +51,11 @@ export default function LayersPage() {
     fetcher,
     { refreshInterval: polling ? 1500 : 0 }
   );
+  const storeKey =
+    selectedWorkspace && selectedTarget
+      ? `/geoserver/workspaces/${encodeURIComponent(selectedWorkspace)}/postgis-stores?target=${encodeURIComponent(selectedTarget)}`
+      : null;
+  const { data: postgisStores } = useSWR<GeoServerPostgisStore[]>(storeKey, fetcher);
 
   useEffect(() => {
     if (!selectedTarget && targets?.length) {
@@ -62,6 +68,20 @@ export default function LayersPage() {
       setSelectedWorkspace(workspaces[0].name);
     }
   }, [workspaces, selectedWorkspace]);
+
+  useEffect(() => {
+    if (!postgisStores) return;
+
+    if (postgisStores.length === 0) {
+      setStoreName('');
+      return;
+    }
+
+    const exists = postgisStores.some((store) => store.name === storeName);
+    if (!exists) {
+      setStoreName(postgisStores[0].name);
+    }
+  }, [postgisStores, storeName]);
 
   useEffect(() => {
     if (activeJob?.status === 'done' || activeJob?.status === 'failed') {
@@ -225,11 +245,22 @@ export default function LayersPage() {
 
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Datastore GeoServer</label>
-                  <Input
+                  <select
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                     value={storeName}
                     onChange={(event) => setStoreName(event.target.value)}
-                    placeholder="Kosongkan untuk otomatis"
-                  />
+                  >
+                    <option value="">Buat datastore otomatis</option>
+                    {(postgisStores ?? []).map((store) => (
+                      <option key={store.name} value={store.name}>
+                        {store.name}
+                        {store.schema ? ` (${store.schema})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-muted-foreground">
+                    Datastore diambil otomatis dari GeoServer berdasarkan workspace dan target PostGIS.
+                  </p>
                 </div>
 
                 <div className="space-y-2">

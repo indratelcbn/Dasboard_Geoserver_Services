@@ -1,6 +1,28 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import { config } from '../config/env.js';
 
+function connectionParam(store: any, key: string): string | null {
+  const entries = toArray<any>(store?.connectionParameters?.entry);
+  const found = entries.find((entry) => entry?.['@key'] === key);
+  if (!found) return null;
+  return typeof found.$ === 'string' ? found.$ : (found['#text'] ?? null);
+}
+
+function normalizeText(value: string | null | undefined): string | null {
+  return value?.trim().toLowerCase() ?? null;
+}
+
+function normalizePort(value: string | number | null | undefined): string | null {
+  if (value === null || value === undefined || value === '') return null;
+  return String(value).trim();
+}
+
+function isPostgisStore(store: any): boolean {
+  const type = String(store?.type ?? '').toLowerCase();
+  const dbType = String(connectionParam(store, 'dbtype') ?? '').toLowerCase();
+  return type.includes('postgis') || dbType.includes('postgis');
+}
+
 /**
  * Thin wrapper around the GeoServer REST API.
  * Docs: https://docs.geoserver.org/latest/en/user/rest/
@@ -74,6 +96,48 @@ class GeoServerService {
 
   async coverageStores(workspace: string): Promise<any> {
     return this.get(`/workspaces/${encodeURIComponent(workspace)}/coveragestores.json`);
+  }
+
+  async postgisDataStores(workspace: string, targetId?: string): Promise<PostgisStoreOption[]> {
+    const target = config.postgres.targets.find(
+      (candidate) => candidate.id === (targetId ?? config.postgres.defaultTargetId)
+    );
+    const data = await this.dataStores(workspace);
+    const stores = toArray<any>(data?.dataStores?.dataStore);
+    const details = await Promise.all(
+      stores.map(async (storeRef) => {
+        try {
+          const detail = await this.dataStore(workspace, storeRef.name);
+          const store = detail?.dataStore;
+          if (!isPostgisStore(store)) return null;
+
+          const option: PostgisStoreOption = {
+            name: storeRef.name,
+            workspace,
+            type: store?.type ?? null,
+            schema: connectionParam(store, 'schema'),
+            host: connectionParam(store, 'host'),
+            port: Number(connectionParam(store, 'port') ?? 0) || null,
+            database: connectionParam(store, 'database') ?? connectionParam(store, 'dbname'),
+          };
+
+          if (!target) {
+            return option;
+          }
+
+          const matchesHost = !option.host || normalizeText(option.host) === normalizeText(target.host);
+          const matchesPort = option.port === null || normalizePort(option.port) === normalizePort(target.port);
+          const matchesDatabase =
+            !option.database || normalizeText(option.database) === normalizeText(target.database);
+
+          return matchesHost && matchesPort && matchesDatabase ? option : null;
+        } catch {
+          return null;
+        }
+      })
+    );
+
+    return details.filter((item): item is PostgisStoreOption => item !== null);
   }
 
   async layers(): Promise<any> {
@@ -321,6 +385,16 @@ export interface LayerDetail {
   wms: string | null;
   wfs: string | null;
   href: string;
+}
+
+export interface PostgisStoreOption {
+  name: string;
+  workspace: string;
+  type: string | null;
+  schema: string | null;
+  host: string | null;
+  port: number | null;
+  database: string | null;
 }
 
 export const geoserverService = new GeoServerService();

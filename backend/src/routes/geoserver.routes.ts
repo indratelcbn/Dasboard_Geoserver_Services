@@ -111,6 +111,14 @@ geoserverRouter.get(
 );
 
 geoserverRouter.get(
+  '/workspaces/:name/postgis-stores',
+  asyncHandler(async (req, res) => {
+    const targetId = typeof req.query.target === 'string' ? req.query.target : undefined;
+    res.json(await geoserverService.postgisDataStores(req.params.name, targetId));
+  })
+);
+
+geoserverRouter.get(
   '/layers',
   asyncHandler(async (_req, res) => {
     res.json(await geoserverService.layersDetailed());

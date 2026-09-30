@@ -127,6 +127,16 @@ export interface Workspace {
   href: string;
 }
 
+export interface GeoServerPostgisStore {
+  name: string;
+  workspace: string;
+  type: string | null;
+  schema: string | null;
+  host: string | null;
+  port: number | null;
+  database: string | null;
+}
+
 export interface NamedRef {
   name: string;
   href: string;
