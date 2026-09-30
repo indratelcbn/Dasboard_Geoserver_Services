@@ -100,6 +100,8 @@ export interface PgTable {
   rows: number;
   hasGeometry: boolean;
   size: string;
+  published: boolean;
+  layers: string[];
 }
 
 export interface FileStore {

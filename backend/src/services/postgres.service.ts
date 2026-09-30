@@ -1,5 +1,6 @@
 import { Pool } from 'pg';
 import { config, type PostgresTargetConfig } from '../config/env.js';
+import { geoserverService, toArray } from './geoserver.service.js';
 
 export interface PostgresStatus {
   id: string;
@@ -12,7 +13,20 @@ export interface PostgresStatus {
   postgis: string | null;
 }
 
+interface PublishedTableInfo {
+  published: boolean;
+  layers: string[];
+}
+
+interface PublishedTablesCacheEntry {
+  cachedAt: number;
+  data: Map<string, PublishedTableInfo>;
+}
+
 const pools = new Map<string, Pool>();
+const publishedTablesCache = new Map<string, PublishedTablesCacheEntry>();
+const PUBLISHED_TABLES_TTL_MS = 30_000;
+const PUBLISHED_TABLES_TIMEOUT_MS = 3_000;
 
 function getTarget(targetId?: string): PostgresTargetConfig {
   const resolvedId = targetId ?? config.postgres.defaultTargetId;
@@ -65,6 +79,182 @@ function createStatus(
     database: target.database,
     ...status,
   };
+}
+
+function connectionParam(store: any, key: string): string | null {
+  const entries = toArray<any>(store?.connectionParameters?.entry);
+  const found = entries.find((entry) => entry?.['@key'] === key);
+  if (!found) return null;
+  return typeof found.$ === 'string' ? found.$ : (found['#text'] ?? null);
+}
+
+function normalizeKey(...parts: string[]): string {
+  return parts.map((part) => part.replace(/^"|"$/g, '').trim().toLowerCase()).join('.');
+}
+
+function normalizeHost(value: string | null | undefined): string | null {
+  return value?.trim().toLowerCase() ?? null;
+}
+
+function normalizeDatabase(value: string | null | undefined): string | null {
+  return value?.trim().toLowerCase() ?? null;
+}
+
+function normalizePort(value: string | number | null | undefined): string | null {
+  if (value === null || value === undefined || value === '') return null;
+  return String(value).trim();
+}
+
+function isPostgisStore(store: any): boolean {
+  const type = String(store?.type ?? '').toLowerCase();
+  const dbType = String(connectionParam(store, 'dbtype') ?? '').toLowerCase();
+  return type.includes('postgis') || dbType.includes('postgis');
+}
+
+function parseQualifiedName(value: string, fallbackSchema: string): { schema: string; table: string } {
+  const normalized = value.replace(/^"|"$/g, '').trim();
+  const parts = normalized.split('.').map((part) => part.replace(/^"|"$/g, '').trim());
+
+  if (parts.length >= 2) {
+    return {
+      schema: parts.at(-2) || fallbackSchema,
+      table: parts.at(-1) || normalized,
+    };
+  }
+
+  return {
+    schema: fallbackSchema,
+    table: normalized,
+  };
+}
+
+async function publishedTables(targetId?: string): Promise<Map<string, PublishedTableInfo>> {
+  const target = getTarget(targetId);
+  const targetHost = normalizeHost(target.host);
+  const targetPort = normalizePort(target.port);
+  const targetDatabase = normalizeDatabase(target.database);
+  const published = new Map<string, PublishedTableInfo>();
+
+  let workspacesData: any = null;
+  try {
+    workspacesData = await geoserverService.workspaces();
+  } catch {
+    return published;
+  }
+
+  const workspaces = toArray<any>(workspacesData?.workspaces?.workspace);
+
+  await Promise.all(
+    workspaces.map(async (workspace) => {
+      let dataStores: any = null;
+      try {
+        dataStores = await geoserverService.dataStores(workspace.name);
+      } catch {
+        return;
+      }
+
+      const stores = toArray<any>(dataStores?.dataStores?.dataStore);
+
+      await Promise.all(
+        stores.map(async (dataStore) => {
+          let detail: any = null;
+          try {
+            detail = await geoserverService.dataStore(workspace.name, dataStore.name);
+          } catch {
+            return;
+          }
+
+          const store = detail?.dataStore;
+          if (!isPostgisStore(store)) return;
+
+          const storeHost = normalizeHost(connectionParam(store, 'host'));
+          const storePort = normalizePort(connectionParam(store, 'port'));
+          const storeDatabase = normalizeDatabase(
+            connectionParam(store, 'database') ?? connectionParam(store, 'dbname')
+          );
+
+          if (targetHost && storeHost && storeHost !== targetHost) return;
+          if (targetPort && storePort && storePort !== targetPort) return;
+          if (targetDatabase && storeDatabase && storeDatabase !== targetDatabase) return;
+
+          const defaultSchema = connectionParam(store, 'schema')?.trim() || 'public';
+
+          let featureTypesData: any = null;
+          try {
+            featureTypesData = await geoserverService.featureTypes(workspace.name, dataStore.name);
+          } catch {
+            return;
+          }
+
+          const featureTypes = toArray<any>(featureTypesData?.featureTypes?.featureType);
+
+          await Promise.all(
+            featureTypes.map(async (featureType) => {
+              let detailData: any = null;
+              try {
+                detailData = await geoserverService.featureType(
+                  workspace.name,
+                  dataStore.name,
+                  featureType.name
+                );
+              } catch {
+                detailData = null;
+              }
+
+              const publishedName = String(featureType.name ?? '').trim();
+              const nativeName = String(
+                detailData?.featureType?.nativeName ?? featureType.name ?? ''
+              ).trim();
+              if (!publishedName || !nativeName) return;
+
+              const native = parseQualifiedName(nativeName, defaultSchema);
+              const key = normalizeKey(native.schema, native.table);
+              const layerName = `${workspace.name}:${publishedName}`;
+              const existing = published.get(key) ?? { published: true, layers: [] };
+
+              if (!existing.layers.includes(layerName)) {
+                existing.layers.push(layerName);
+              }
+
+              published.set(key, existing);
+            })
+          );
+        })
+      );
+    })
+  );
+
+  return published;
+}
+
+async function publishedTablesBestEffort(targetId?: string): Promise<Map<string, PublishedTableInfo>> {
+  const cacheKey = targetId ?? config.postgres.defaultTargetId;
+  const cached = publishedTablesCache.get(cacheKey);
+  const now = Date.now();
+
+  if (cached && now - cached.cachedAt < PUBLISHED_TABLES_TTL_MS) {
+    return cached.data;
+  }
+
+  try {
+    const data = await Promise.race([
+      publishedTables(targetId),
+      new Promise<Map<string, PublishedTableInfo>>((resolve) => {
+        setTimeout(() => resolve(cached?.data ?? new Map()), PUBLISHED_TABLES_TIMEOUT_MS);
+      }),
+    ]);
+
+    if (data.size > 0 || !cached) {
+      publishedTablesCache.set(cacheKey, {
+        cachedAt: now,
+        data,
+      });
+    }
+
+    return data;
+  } catch {
+    return cached?.data ?? new Map();
+  }
 }
 
 export const postgresService = {
@@ -147,8 +337,19 @@ export const postgresService = {
 
   async tables(
     targetId?: string
-  ): Promise<Array<{ schema: string; table: string; rows: number; hasGeometry: boolean; size: string }>> {
+  ): Promise<
+    Array<{
+      schema: string;
+      table: string;
+      rows: number;
+      hasGeometry: boolean;
+      size: string;
+      published: boolean;
+      layers: string[];
+    }>
+  > {
     const pool = getPool(targetId);
+    const published = await publishedTablesBestEffort(targetId);
     const sql = `
       SELECT
         n.nspname                                   AS schema,
@@ -176,6 +377,8 @@ export const postgresService = {
       rows: Number(row.rows),
       hasGeometry: row.has_geometry,
       size: row.size,
+      published: published.has(normalizeKey(row.schema, row.table)),
+      layers: published.get(normalizeKey(row.schema, row.table))?.layers ?? [],
     }));
   },
 

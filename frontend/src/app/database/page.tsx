@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import useSWR from 'swr';
-import { Database, MapPin, Server } from 'lucide-react';
+import { CheckCircle2, Database, MapPin, Server, AlertTriangle } from 'lucide-react';
 import { Header } from '@/components/layout/header';
 import { StatusBadge } from '@/components/status-badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -117,9 +117,11 @@ export default function DatabasePage() {
                   <TableRow>
                     <TableHead>Schema</TableHead>
                     <TableHead>Table</TableHead>
+                    <TableHead>Layer</TableHead>
                     <TableHead className="text-right">Rows (est.)</TableHead>
                     <TableHead className="text-right">Size</TableHead>
                     <TableHead>Type</TableHead>
+                    <TableHead>Status</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -127,6 +129,9 @@ export default function DatabasePage() {
                     <TableRow key={`${t.schema}.${t.table}`}>
                       <TableCell className="text-muted-foreground">{t.schema}</TableCell>
                       <TableCell className="font-medium">{t.table}</TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {t.layers.length > 0 ? t.layers.join(', ') : '—'}
+                      </TableCell>
                       <TableCell className="text-right">{formatNumber(t.rows)}</TableCell>
                       <TableCell className="text-right text-muted-foreground">{t.size}</TableCell>
                       <TableCell>
@@ -136,6 +141,17 @@ export default function DatabasePage() {
                           </Badge>
                         ) : (
                           <Badge variant="secondary">Table</Badge>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {t.published ? (
+                          <Badge variant="success" className="gap-1">
+                            <CheckCircle2 className="h-3 w-3" /> Published
+                          </Badge>
+                        ) : (
+                          <Badge variant="secondary" className="gap-1">
+                            <AlertTriangle className="h-3 w-3" /> Unpublished
+                          </Badge>
                         )}
                       </TableCell>
                     </TableRow>
