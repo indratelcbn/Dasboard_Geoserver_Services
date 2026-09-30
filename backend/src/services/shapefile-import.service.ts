@@ -120,6 +120,10 @@ function parseProgress(chunk: string): number | null {
 }
 
 function parseDetectedSrs(output: string): string | null {
+  if (/\bSRGI\s*2013\b|\bSRGI2013\b|Sistem[_ ]Referensi[_ ]Geospasial[_ ]Indonesia[_ ]2013/i.test(output)) {
+    return 'EPSG:9470';
+  }
+
   const authorityMatches = [
     ...output.matchAll(/AUTHORITY\["(EPSG)",\s*"?(\d+)"?\]/gi),
     ...output.matchAll(/ID\["(EPSG)",\s*(\d+)\]/gi),
@@ -135,11 +139,21 @@ function parseDetectedSrs(output: string): string | null {
     return `${directCode[1].toUpperCase()}:${directCode[2]}`;
   }
 
-  if (/\bSRGI\s*2013\b|\bSRGI2013\b|Sistem[_ ]Referensi[_ ]Geospasial[_ ]Indonesia[_ ]2013/i.test(output)) {
+  return null;
+}
+
+function normalizeDeclaredSrs(value: string | null | undefined, metadata: string): string | null {
+  const normalized = value?.trim() || null;
+  if (!normalized) return null;
+
+  if (
+    normalized.toUpperCase() === 'EPSG:1293' &&
+    /\bSRGI\s*2013\b|\bSRGI2013\b|Sistem[_ ]Referensi[_ ]Geospasial[_ ]Indonesia[_ ]2013/i.test(metadata)
+  ) {
     return 'EPSG:9470';
   }
 
-  return null;
+  return normalized;
 }
 
 function publicJob(job: InternalJob): ShapefileImportJob {
@@ -307,10 +321,12 @@ class ShapefileImportService {
 
       const sourceLayerName = layers[0];
       const layerMetadata = await runCommand(config.imports.ogrinfoBin, ['-ro', '-so', sourcePath, sourceLayerName]);
-      const detectedSrs = parseDetectedSrs(`${layerMetadata.stdout}\n${layerMetadata.stderr}`);
+      const metadataText = `${layerMetadata.stdout}\n${layerMetadata.stderr}`;
+      const detectedSrs = parseDetectedSrs(metadataText);
       const publishedLayerName = job.layerName ?? sanitizeIdentifier(sourceLayerName, 'layer_import');
       const tableName = sanitizeIdentifier(sourceLayerName, 'layer_import').toLowerCase();
-      const declaredSrs = job.declaredSrs ?? detectedSrs;
+      const requestedDeclaredSrs = normalizeDeclaredSrs(job.declaredSrs, metadataText);
+      const declaredSrs = requestedDeclaredSrs ?? detectedSrs;
       job = this.update(
         id,
         { layerName: publishedLayerName, sourceLayerName, tableName, detectedSrs, declaredSrs },
@@ -324,7 +340,15 @@ class ShapefileImportService {
       }
 
       if (job.declaredSrs) {
-        job = this.update(id, { declaredSrs: job.declaredSrs }, `Declared SRS dipilih manual: ${job.declaredSrs}.`);
+        if (requestedDeclaredSrs && requestedDeclaredSrs !== job.declaredSrs) {
+          job = this.update(
+            id,
+            { declaredSrs: requestedDeclaredSrs },
+            `Declared SRS ${job.declaredSrs} dikoreksi menjadi ${requestedDeclaredSrs} berdasarkan metadata shapefile.`
+          );
+        } else {
+          job = this.update(id, { declaredSrs: requestedDeclaredSrs }, `Declared SRS dipilih manual: ${requestedDeclaredSrs}.`);
+        }
       } else if (detectedSrs) {
         job = this.update(id, { declaredSrs: detectedSrs }, `Declared SRS menggunakan hasil deteksi: ${detectedSrs}.`);
       } else {
