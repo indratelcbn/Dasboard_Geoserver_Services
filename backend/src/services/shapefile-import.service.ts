@@ -120,18 +120,23 @@ function parseProgress(chunk: string): number | null {
 }
 
 function parseDetectedSrs(output: string): string | null {
-  const patterns = [
-    /AUTHORITY\["(EPSG)",\s*"?(\d+)"?\]/i,
-    /ID\["(EPSG)",\s*(\d+)\]/i,
-    /\b(EPSG):(\d{3,6})\b/i,
-    /\b(CRS):(84)\b/i,
+  const authorityMatches = [
+    ...output.matchAll(/AUTHORITY\["(EPSG)",\s*"?(\d+)"?\]/gi),
+    ...output.matchAll(/ID\["(EPSG)",\s*(\d+)\]/gi),
   ];
 
-  for (const pattern of patterns) {
-    const match = pattern.exec(output);
-    if (match) {
-      return `${match[1].toUpperCase()}:${match[2]}`;
-    }
+  if (authorityMatches.length > 0) {
+    const match = authorityMatches[authorityMatches.length - 1];
+    return `${match[1].toUpperCase()}:${match[2]}`;
+  }
+
+  const directCode = /(EPSG):(\d{3,6})\b/i.exec(output) ?? /(CRS):(84)\b/i.exec(output);
+  if (directCode) {
+    return `${directCode[1].toUpperCase()}:${directCode[2]}`;
+  }
+
+  if (/\bSRGI\s*2013\b|\bSRGI2013\b|Sistem[_ ]Referensi[_ ]Geospasial[_ ]Indonesia[_ ]2013/i.test(output)) {
+    return 'EPSG:9470';
   }
 
   return null;
