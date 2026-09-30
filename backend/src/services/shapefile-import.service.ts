@@ -27,6 +27,8 @@ export interface ShapefileImportJob {
   schema: string;
   storeName: string;
   layerName: string | null;
+  declaredSrs: string | null;
+  detectedSrs: string | null;
   overwrite: boolean;
   createdAt: string;
   updatedAt: string;
@@ -55,6 +57,7 @@ interface CreateJobInput {
   schema?: string;
   storeName?: string;
   layerName?: string;
+  declaredSrs?: string;
   overwrite: boolean;
 }
 
@@ -114,6 +117,24 @@ function parseProgress(chunk: string): number | null {
     .map((match) => Number(match[1]))
     .filter((value) => !Number.isNaN(value) && value >= 0 && value <= 100);
   return matches.length > 0 ? matches[matches.length - 1] : null;
+}
+
+function parseDetectedSrs(output: string): string | null {
+  const patterns = [
+    /AUTHORITY\["(EPSG)",\s*"?(\d+)"?\]/i,
+    /ID\["(EPSG)",\s*(\d+)\]/i,
+    /\b(EPSG):(\d{3,6})\b/i,
+    /\b(CRS):(84)\b/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = pattern.exec(output);
+    if (match) {
+      return `${match[1].toUpperCase()}:${match[2]}`;
+    }
+  }
+
+  return null;
 }
 
 function publicJob(job: InternalJob): ShapefileImportJob {
@@ -211,6 +232,8 @@ class ShapefileImportService {
       schema,
       storeName,
       layerName: input.layerName?.trim() ? sanitizeIdentifier(input.layerName.trim(), 'layer_import') : null,
+      declaredSrs: input.declaredSrs?.trim() || null,
+      detectedSrs: null,
       sourceLayerName: null,
       tableName: null,
       overwrite: input.overwrite,
@@ -278,15 +301,30 @@ class ShapefileImportService {
       }
 
       const sourceLayerName = layers[0];
+      const layerMetadata = await runCommand(config.imports.ogrinfoBin, ['-ro', '-so', sourcePath, sourceLayerName]);
+      const detectedSrs = parseDetectedSrs(`${layerMetadata.stdout}\n${layerMetadata.stderr}`);
       const publishedLayerName = job.layerName ?? sanitizeIdentifier(sourceLayerName, 'layer_import');
       const tableName = sanitizeIdentifier(sourceLayerName, 'layer_import').toLowerCase();
+      const declaredSrs = job.declaredSrs ?? detectedSrs;
       job = this.update(
         id,
-        { layerName: publishedLayerName, sourceLayerName, tableName },
+        { layerName: publishedLayerName, sourceLayerName, tableName, detectedSrs, declaredSrs },
         layers.length > 1
           ? `Ditemukan ${layers.length} layer; layer pertama ${sourceLayerName} dipilih untuk import.`
           : `Layer sumber terdeteksi: ${sourceLayerName}.`
       );
+
+      if (detectedSrs) {
+        job = this.update(id, { detectedSrs }, `CRS terdeteksi otomatis: ${detectedSrs}.`);
+      }
+
+      if (job.declaredSrs) {
+        job = this.update(id, { declaredSrs: job.declaredSrs }, `Declared SRS dipilih manual: ${job.declaredSrs}.`);
+      } else if (detectedSrs) {
+        job = this.update(id, { declaredSrs: detectedSrs }, `Declared SRS menggunakan hasil deteksi: ${detectedSrs}.`);
+      } else {
+        throw new Error('Declared SRS tidak terdeteksi dari shapefile. Pilih manual dari dropdown Declared SRS.');
+      }
 
       const target = getTargetConfig(job.targetId);
       job = this.update(id, { step: 'importing-postgis', progress: 35 }, `Mengimpor ke PostGIS target ${target.name}.`);
@@ -347,7 +385,8 @@ class ShapefileImportService {
         job.storeName,
         publishedLayerName,
         publishedLayerName,
-        tableName
+        tableName,
+        job.declaredSrs
       );
 
       this.update(id, {

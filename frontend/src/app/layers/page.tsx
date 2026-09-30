@@ -16,6 +16,7 @@ import {
   fetcher,
   uploadShapefileImport,
   type GeoServerPostgisStore,
+  type GeoServerSrsOption,
   type LayerDetail,
   type PostgresTarget,
   type ShapefileImportJob,
@@ -28,12 +29,14 @@ export default function LayersPage() {
   const { data, error, isLoading, mutate: mutateLayers } = useSWR<LayerDetail[]>('/geoserver/layers', fetcher);
   const { data: targets } = useSWR<PostgresTarget[]>('/postgres/targets', fetcher);
   const { data: workspaces } = useSWR<Workspace[]>('/geoserver/workspaces', fetcher);
+  const { data: srsOptions } = useSWR<GeoServerSrsOption[]>('/geoserver/srs', fetcher);
   const [q, setQ] = useState('');
   const [selectedTarget, setSelectedTarget] = useState('');
   const [selectedWorkspace, setSelectedWorkspace] = useState('');
   const [schema, setSchema] = useState('public');
   const [storeName, setStoreName] = useState('');
   const [layerName, setLayerName] = useState('');
+  const [declaredSrs, setDeclaredSrs] = useState('');
   const [overwrite, setOverwrite] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
@@ -141,6 +144,7 @@ export default function LayersPage() {
           schema,
           storeName,
           layerName,
+          declaredSrs,
           overwrite,
         },
         (progress) => setUploadProgress(progress)
@@ -160,6 +164,7 @@ export default function LayersPage() {
   }
 
   const targetButtons = targets ?? [];
+  const availableSrs = srsOptions ?? [];
   const jobProgress = activeJob ? activeJob.progress : null;
   const jobBusy = activeJob?.status === 'queued' || activeJob?.status === 'running';
   const recentJobs = jobs ?? [];
@@ -271,6 +276,25 @@ export default function LayersPage() {
                     placeholder="Kosongkan untuk pakai nama dari ZIP"
                   />
                 </div>
+
+                <div className="space-y-2 xl:col-span-2">
+                  <label className="text-sm font-medium">Declared SRS</label>
+                  <select
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    value={declaredSrs}
+                    onChange={(event) => setDeclaredSrs(event.target.value)}
+                  >
+                    <option value="">Auto-detect dari shapefile</option>
+                    {availableSrs.map((srs) => (
+                      <option key={srs.code} value={srs.code}>
+                        {srs.label}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-muted-foreground">
+                    Jika CRS pada shapefile tidak terbaca, pilih manual dari daftar SRS GeoServer.
+                  </p>
+                </div>
               </div>
 
               <label className="flex items-center gap-2 text-sm">
@@ -353,6 +377,14 @@ export default function LayersPage() {
                       <div className="flex items-center justify-between gap-3">
                         <span>Layer</span>
                         <span className="font-medium">{activeJob.layerName ?? 'Menunggu deteksi'}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span>Detected SRS</span>
+                        <span className="font-medium">{activeJob.detectedSrs ?? 'Tidak terdeteksi'}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span>Declared SRS</span>
+                        <span className="font-medium">{activeJob.declaredSrs ?? 'Belum dipilih'}</span>
                       </div>
                       {activeJob.result && (
                         <div className="rounded-md border border-success/40 bg-success/10 p-3 text-success-foreground">

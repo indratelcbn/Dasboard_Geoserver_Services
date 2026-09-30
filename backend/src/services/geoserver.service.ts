@@ -98,6 +98,33 @@ class GeoServerService {
     return this.get(`/workspaces/${encodeURIComponent(workspace)}/coveragestores.json`);
   }
 
+  async srsList(): Promise<GeoServerSrsOption[]> {
+    const { data } = await axios.get<string>(`${config.geoserver.url}/wms`, {
+      auth: {
+        username: config.geoserver.user,
+        password: config.geoserver.password,
+      },
+      params: {
+        service: 'WMS',
+        request: 'GetCapabilities',
+      },
+      responseType: 'text',
+      timeout: 20000,
+      headers: { Accept: 'application/xml,text/xml' },
+    });
+
+    const matches = [...data.matchAll(/<(?:CRS|SRS)>([^<]+)<\/(?:CRS|SRS)>/g)]
+      .map((match) => match[1].trim())
+      .filter((value) => /^(EPSG|CRS):/i.test(value));
+
+    const unique = [...new Set(matches)].sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
+
+    return unique.map((code) => ({
+      code,
+      label: code,
+    }));
+  }
+
   async postgisDataStores(workspace: string, targetId?: string): Promise<PostgisStoreOption[]> {
     const target = config.postgres.targets.find(
       (candidate) => candidate.id === (targetId ?? config.postgres.defaultTargetId)
@@ -264,7 +291,8 @@ class GeoServerService {
     datastore: string,
     layerName: string,
     title?: string,
-    nativeName?: string
+    nativeName?: string,
+    declaredSrs?: string | null
   ): Promise<void> {
     try {
       await this.featureType(workspace, datastore, layerName);
@@ -283,6 +311,12 @@ class GeoServerService {
           nativeName: nativeName ?? layerName,
           title: title ?? layerName,
           enabled: true,
+          ...(declaredSrs
+            ? {
+                srs: declaredSrs,
+                projectionPolicy: 'FORCE_DECLARED',
+              }
+            : {}),
         },
       }
     );
@@ -396,6 +430,11 @@ export interface PostgisStoreOption {
   host: string | null;
   port: number | null;
   database: string | null;
+}
+
+export interface GeoServerSrsOption {
+  code: string;
+  label: string;
 }
 
 export const geoserverService = new GeoServerService();

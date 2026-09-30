@@ -34,6 +34,13 @@ geoserverRouter.get(
 );
 
 geoserverRouter.get(
+  '/srs',
+  asyncHandler(async (_req, res) => {
+    res.json(await geoserverService.srsList());
+  })
+);
+
+geoserverRouter.get(
   '/workspaces',
   asyncHandler(async (_req, res) => {
     const data = await geoserverService.workspaces();
@@ -62,6 +69,7 @@ geoserverRouter.post('/imports/shapefile', async (req, res, next) => {
     const schema = headerValue(req.headers['x-schema']) ?? 'public';
     const storeName = headerValue(req.headers['x-store-name']);
     const layerName = headerValue(req.headers['x-layer-name']);
+    const declaredSrs = headerValue(req.headers['x-declared-srs']);
     const overwrite = headerValue(req.headers['x-overwrite']) === 'true';
 
     if (!workspace.trim()) {
@@ -87,6 +95,7 @@ geoserverRouter.post('/imports/shapefile', async (req, res, next) => {
       schema,
       storeName,
       layerName,
+      declaredSrs,
       overwrite,
     });
 

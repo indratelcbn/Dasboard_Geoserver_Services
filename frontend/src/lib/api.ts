@@ -30,6 +30,7 @@ export interface UploadShapefileRequest {
   schema: string;
   storeName?: string;
   layerName?: string;
+  declaredSrs?: string;
   overwrite: boolean;
 }
 
@@ -53,6 +54,10 @@ export async function uploadShapefileImport(
 
     if (payload.layerName?.trim()) {
       xhr.setRequestHeader('X-Layer-Name', payload.layerName.trim());
+    }
+
+    if (payload.declaredSrs?.trim()) {
+      xhr.setRequestHeader('X-Declared-Srs', payload.declaredSrs.trim());
     }
 
     xhr.upload.onprogress = (event) => {
@@ -137,6 +142,11 @@ export interface GeoServerPostgisStore {
   database: string | null;
 }
 
+export interface GeoServerSrsOption {
+  code: string;
+  label: string;
+}
+
 export interface NamedRef {
   name: string;
   href: string;
@@ -189,6 +199,8 @@ export interface ShapefileImportJob {
   schema: string;
   storeName: string;
   layerName: string | null;
+  declaredSrs: string | null;
+  detectedSrs: string | null;
   overwrite: boolean;
   createdAt: string;
   updatedAt: string;
