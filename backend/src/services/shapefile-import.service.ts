@@ -242,12 +242,13 @@ async function runCommand(
   options?: {
     onStdout?: (chunk: string) => void;
     onStderr?: (chunk: string) => void;
+    env?: NodeJS.ProcessEnv;
   }
 ): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: process.env,
+      env: options?.env ?? process.env,
     });
 
     let stdout = '';
@@ -279,6 +280,25 @@ async function runCommand(
       reject(new Error(details));
     });
   });
+}
+
+function shapefileCommandEnv(): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    SHAPE_RESTORE_SHX: 'YES',
+  };
+}
+
+function normalizeShapefileImportError(error: unknown): Error {
+  const message = error instanceof Error ? error.message : String(error);
+
+  if (/Invalid offset for entity/i.test(message)) {
+    return new Error(
+      'Struktur shapefile tidak konsisten: indeks .shx rusak atau tidak sinkron dengan .shp. Sistem sudah mencoba memulihkan indeks otomatis, tetapi file masih gagal dibaca. Ekspor ulang shapefile atau rebuild index .shx lalu zip ulang file .shp, .shx, .dbf, dan .prj.'
+    );
+  }
+
+  return error instanceof Error ? error : new Error(message);
 }
 
 class ShapefileImportService {
@@ -392,7 +412,10 @@ class ShapefileImportService {
       }
 
       const sourceLayerName = source.layerName;
-      const layerMetadata = await runCommand(config.imports.ogrinfoBin, ['-ro', '-so', source.vsiPath]);
+      const gdalEnv = shapefileCommandEnv();
+      const layerMetadata = await runCommand(config.imports.ogrinfoBin, ['-ro', '-so', source.vsiPath], {
+        env: gdalEnv,
+      });
       const metadataText = `${layerMetadata.stdout}\n${layerMetadata.stderr}`;
       const detectedSrs = parseDetectedSrs(metadataText);
       const publishedLayerName = job.layerName ?? sanitizeIdentifier(sourceLayerName, 'layer_import');
@@ -453,6 +476,7 @@ class ShapefileImportService {
       }
 
       await runCommand(config.imports.ogr2ogrBin, ogrArgs, {
+        env: gdalEnv,
         onStdout: (chunk) => {
           const progress = parseProgress(chunk);
           if (progress !== null) {
@@ -500,7 +524,8 @@ class ShapefileImportService {
         },
       }, 'Import selesai dan layer berhasil dipublikasikan.');
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Import shapefile gagal.';
+      const normalizedError = normalizeShapefileImportError(error);
+      const message = normalizedError.message || 'Import shapefile gagal.';
       this.update(id, { status: 'failed', step: 'failed', error: message }, `Gagal: ${message}`);
     } finally {
       const current = this.jobs.get(id);
