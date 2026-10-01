@@ -1,7 +1,8 @@
 import { randomUUID } from 'crypto';
-import { promises as fs } from 'fs';
+import { createWriteStream, promises as fs } from 'fs';
 import path from 'path';
 import { spawn } from 'child_process';
+import { pipeline } from 'stream/promises';
 import yauzl from 'yauzl';
 import { config, type PostgresTargetConfig } from '../config/env.js';
 import { geoserverService } from './geoserver.service.js';
@@ -67,7 +68,8 @@ const MAX_JOBS = 50;
 interface ZipShapefileSource {
   entryName: string;
   layerName: string;
-  vsiPath: string;
+  sourcePath: string;
+  extractedDir: string;
 }
 
 function now(): string {
@@ -104,15 +106,6 @@ function getTargetConfig(targetId: string): PostgresTargetConfig {
 
 function normalizeZipEntryName(value: string): string {
   return value.replace(/\\/g, '/').replace(/^\/+/, '');
-}
-
-function toVsiZipPath(filePath: string, entryName?: string): string {
-  const zipPath = filePath.replace(/\\/g, '/');
-  if (!entryName) {
-    return `/vsizip/${zipPath}`;
-  }
-
-  return `/vsizip/${zipPath}/${normalizeZipEntryName(entryName)}`;
 }
 
 function normalizeOgrLayerName(value: string): string {
@@ -229,11 +222,96 @@ async function resolveZipShapefileSource(filePath: string): Promise<ZipShapefile
   });
 
   const entryName = preferredEntry ?? shapefileEntries[0];
+  const parsedEntry = path.posix.parse(entryName);
+  const baseName = path.posix.join(parsedEntry.dir, parsedEntry.name).toLowerCase();
+  const companionEntries = entries.filter((entry) => {
+    const parsed = path.posix.parse(entry);
+    return path.posix.join(parsed.dir, parsed.name).toLowerCase() === baseName;
+  });
+  const extractedDir = path.join(config.imports.stagingDir, `extract-${randomUUID()}`);
+  await fs.mkdir(extractedDir, { recursive: true });
+
+  for (const companionEntry of companionEntries) {
+    await extractZipEntry(filePath, companionEntry, path.join(extractedDir, path.posix.basename(companionEntry)));
+  }
+
   return {
     entryName,
-    layerName: path.posix.parse(entryName).name,
-    vsiPath: toVsiZipPath(filePath, entryName),
+    layerName: parsedEntry.name,
+    sourcePath: path.join(extractedDir, path.posix.basename(entryName)),
+    extractedDir,
   };
+}
+
+async function extractZipEntry(filePath: string, entryName: string, outputPath: string): Promise<void> {
+  const targetEntryName = normalizeZipEntryName(entryName);
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+
+    const fail = (error: Error) => {
+      if (!settled) {
+        settled = true;
+        reject(error);
+      }
+    };
+
+    yauzl.open(filePath, { lazyEntries: true }, (error, archive) => {
+      if (error) {
+        fail(error);
+        return;
+      }
+
+      if (!archive) {
+        fail(new Error('Gagal membuka arsip ZIP shapefile.'));
+        return;
+      }
+
+      archive.on('error', (archiveError) => {
+        fail(archiveError);
+      });
+
+      archive.on('entry', (entry) => {
+        const normalizedEntryName = normalizeZipEntryName(entry.fileName);
+        if (normalizedEntryName !== targetEntryName) {
+          archive.readEntry();
+          return;
+        }
+
+        archive.openReadStream(entry, (streamError, stream) => {
+          if (streamError) {
+            fail(streamError);
+            return;
+          }
+
+          if (!stream) {
+            fail(new Error(`Gagal membaca entry ZIP: ${targetEntryName}`));
+            return;
+          }
+
+          pipeline(stream, createWriteStream(outputPath))
+            .then(() => {
+              if (!settled) {
+                settled = true;
+                archive.close();
+                resolve();
+              }
+            })
+            .catch((pipelineError: Error) => {
+              fail(pipelineError);
+            });
+        });
+      });
+
+      archive.on('end', () => {
+        if (!settled) {
+          fail(new Error(`Entry ZIP tidak ditemukan: ${targetEntryName}`));
+        }
+      });
+
+      archive.readEntry();
+    });
+  });
 }
 
 async function runCommand(
@@ -397,6 +475,7 @@ class ShapefileImportService {
   private async run(id: string): Promise<void> {
     let job = this.jobs.get(id);
     if (!job) return;
+    let extractedDir: string | null = null;
 
     try {
       job = this.update(id, { status: 'running', step: 'validating', progress: 10 }, 'Memvalidasi arsip ZIP shapefile.');
@@ -411,9 +490,11 @@ class ShapefileImportService {
         throw new Error('Tidak ditemukan layer shapefile yang valid di dalam arsip.');
       }
 
+      extractedDir = source.extractedDir;
+
       const sourceLayerName = source.layerName;
       const gdalEnv = shapefileCommandEnv();
-      const layerMetadata = await runCommand(config.imports.ogrinfoBin, ['-ro', '-so', source.vsiPath], {
+      const layerMetadata = await runCommand(config.imports.ogrinfoBin, ['-ro', '-so', source.sourcePath], {
         env: gdalEnv,
       });
       const metadataText = `${layerMetadata.stdout}\n${layerMetadata.stderr}`;
@@ -458,7 +539,7 @@ class ShapefileImportService {
         '-f',
         'PostgreSQL',
         pgConnection,
-        source.vsiPath,
+        source.sourcePath,
         '-nln',
         tableRef,
         '-lco',
@@ -532,6 +613,14 @@ class ShapefileImportService {
       if (current) {
         try {
           await fs.unlink(current.filePath);
+        } catch {
+          /* ignore cleanup errors */
+        }
+      }
+
+      if (extractedDir) {
+        try {
+          await fs.rm(extractedDir, { recursive: true, force: true });
         } catch {
           /* ignore cleanup errors */
         }
