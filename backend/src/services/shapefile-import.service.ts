@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { spawn } from 'child_process';
+import yauzl from 'yauzl';
 import { config, type PostgresTargetConfig } from '../config/env.js';
 import { geoserverService } from './geoserver.service.js';
 
@@ -63,6 +64,12 @@ interface CreateJobInput {
 
 const MAX_JOBS = 50;
 
+interface ZipShapefileSource {
+  entryName: string;
+  layerName: string;
+  vsiPath: string;
+}
+
 function now(): string {
   return new Date().toISOString();
 }
@@ -95,8 +102,17 @@ function getTargetConfig(targetId: string): PostgresTargetConfig {
   return target;
 }
 
-function toVsiZipPath(filePath: string): string {
-  return `/vsizip/${filePath.replace(/\\/g, '/')}`;
+function normalizeZipEntryName(value: string): string {
+  return value.replace(/\\/g, '/').replace(/^\/+/, '');
+}
+
+function toVsiZipPath(filePath: string, entryName?: string): string {
+  const zipPath = filePath.replace(/\\/g, '/');
+  if (!entryName) {
+    return `/vsizip/${zipPath}`;
+  }
+
+  return `/vsizip/${zipPath}/${normalizeZipEntryName(entryName)}`;
 }
 
 function normalizeOgrLayerName(value: string): string {
@@ -159,6 +175,65 @@ function normalizeDeclaredSrs(value: string | null | undefined, metadata: string
 function publicJob(job: InternalJob): ShapefileImportJob {
   const { filePath: _filePath, sourceLayerName: _sourceLayerName, ...rest } = job;
   return rest;
+}
+
+async function listZipEntries(filePath: string): Promise<string[]> {
+  return new Promise((resolve, reject) => {
+    yauzl.open(filePath, { lazyEntries: true }, (error, archive) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+
+      if (!archive) {
+        reject(new Error('Gagal membuka arsip ZIP shapefile.'));
+        return;
+      }
+
+      const entries: string[] = [];
+
+      archive.on('error', (archiveError) => {
+        reject(archiveError);
+      });
+
+      archive.on('entry', (entry) => {
+        const entryName = normalizeZipEntryName(entry.fileName);
+        if (entryName && !entryName.endsWith('/')) {
+          entries.push(entryName);
+        }
+        archive.readEntry();
+      });
+
+      archive.on('end', () => {
+        resolve([...new Set(entries)]);
+      });
+
+      archive.readEntry();
+    });
+  });
+}
+
+async function resolveZipShapefileSource(filePath: string): Promise<ZipShapefileSource | null> {
+  const entries = await listZipEntries(filePath);
+  const shapefileEntries = entries.filter((entry) => path.posix.extname(entry).toLowerCase() === '.shp');
+
+  if (shapefileEntries.length === 0) {
+    return null;
+  }
+
+  const lowerCaseEntries = new Set(entries.map((entry) => entry.toLowerCase()));
+  const preferredEntry = shapefileEntries.find((entry) => {
+    const parsed = path.posix.parse(entry);
+    const baseName = path.posix.join(parsed.dir, parsed.name).toLowerCase();
+    return lowerCaseEntries.has(`${baseName}.dbf`) && lowerCaseEntries.has(`${baseName}.shx`);
+  });
+
+  const entryName = preferredEntry ?? shapefileEntries[0];
+  return {
+    entryName,
+    layerName: path.posix.parse(entryName).name,
+    vsiPath: toVsiZipPath(filePath, entryName),
+  };
 }
 
 async function runCommand(
@@ -309,18 +384,15 @@ class ShapefileImportService {
         throw new Error('File harus berupa arsip ZIP shapefile.');
       }
 
-      const sourcePath = toVsiZipPath(job.filePath);
-
       job = this.update(id, { step: 'reading-metadata', progress: 20 }, 'Membaca metadata layer dari arsip.');
-      const metadata = await runCommand(config.imports.ogrinfoBin, ['-ro', sourcePath]);
-      const layers = parseLayerNames(`${metadata.stdout}\n${metadata.stderr}`);
+      const source = await resolveZipShapefileSource(job.filePath);
 
-      if (layers.length === 0) {
+      if (!source) {
         throw new Error('Tidak ditemukan layer shapefile yang valid di dalam arsip.');
       }
 
-      const sourceLayerName = layers[0];
-      const layerMetadata = await runCommand(config.imports.ogrinfoBin, ['-ro', '-so', sourcePath, sourceLayerName]);
+      const sourceLayerName = source.layerName;
+      const layerMetadata = await runCommand(config.imports.ogrinfoBin, ['-ro', '-so', source.vsiPath]);
       const metadataText = `${layerMetadata.stdout}\n${layerMetadata.stderr}`;
       const detectedSrs = parseDetectedSrs(metadataText);
       const publishedLayerName = job.layerName ?? sanitizeIdentifier(sourceLayerName, 'layer_import');
@@ -330,9 +402,7 @@ class ShapefileImportService {
       job = this.update(
         id,
         { layerName: publishedLayerName, sourceLayerName, tableName, detectedSrs, declaredSrs },
-        layers.length > 1
-          ? `Ditemukan ${layers.length} layer; layer pertama ${sourceLayerName} dipilih untuk import.`
-          : `Layer sumber terdeteksi: ${sourceLayerName}.`
+        `Layer sumber terdeteksi: ${sourceLayerName} (${source.entryName}).`
       );
 
       if (detectedSrs) {
@@ -365,8 +435,7 @@ class ShapefileImportService {
         '-f',
         'PostgreSQL',
         pgConnection,
-        sourcePath,
-        sourceLayerName,
+        source.vsiPath,
         '-nln',
         tableRef,
         '-lco',
