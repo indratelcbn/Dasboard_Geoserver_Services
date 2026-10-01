@@ -370,6 +370,12 @@ function shapefileCommandEnv(): NodeJS.ProcessEnv {
 function normalizeShapefileImportError(error: unknown): Error {
   const message = error instanceof Error ? error.message : String(error);
 
+  if (/Error parsing \.shp to restore \.shx/i.test(message)) {
+    return new Error(
+      'File .shp utama rusak atau terpotong. Sistem sudah mencoba membangun ulang indeks .shx, tetapi isi geometri di .shp tidak bisa diparse. Ekspor ulang dataset dari sumber aslinya, lalu zip kembali file .shp, .shx, .dbf, dan .prj yang baru.'
+    );
+  }
+
   if (/Invalid offset for entity/i.test(message)) {
     return new Error(
       'Struktur shapefile tidak konsisten: indeks .shx rusak atau tidak sinkron dengan .shp. Sistem sudah mencoba memulihkan indeks otomatis, tetapi file masih gagal dibaca. Ekspor ulang shapefile atau rebuild index .shx lalu zip ulang file .shp, .shx, .dbf, dan .prj.'
